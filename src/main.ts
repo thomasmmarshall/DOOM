@@ -571,6 +571,8 @@ class DoomGame {
       const x = FixedToFloat(this.playerMobj.x);
       const y = FixedToFloat(this.playerMobj.y);
       this.levelRenderer.updateVisibility(x, y, this.camera.position);
+      // Update sky to follow camera
+      this.levelRenderer.updateSky(this.camera.position);
     }
 
     // Update weapon every frame (not just in game tick)

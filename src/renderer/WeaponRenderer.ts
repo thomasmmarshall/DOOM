@@ -120,7 +120,7 @@ export class WeaponRenderer {
       const texture = new THREE.CanvasTexture(canvas);
       texture.magFilter = THREE.NearestFilter;
       texture.minFilter = THREE.NearestFilter;
-      texture.flipY = false; // Don't flip Y - DOOM patches are already correct orientation
+      // flipY defaults to true, which is correct for DOOM patches
       texture.needsUpdate = true;
 
       const cached: CachedWeaponSprite = {
@@ -143,15 +143,11 @@ export class WeaponRenderer {
    * Update weapon sprite based on weapon state
    */
   update(weapon: PlayerWeapon, playerBob: number = 0): void {
-    console.log(`WeaponRenderer.update() called - weapon: ${weapon.currentWeapon}, state: ${weapon.state}`);
-
     const frames = WEAPON_FRAMES.get(weapon.currentWeapon);
     if (!frames || frames.length === 0) {
       console.error(`No frames for weapon ${WeaponType[weapon.currentWeapon]} (type: ${weapon.currentWeapon})`);
       return;
     }
-
-    console.log(`Found ${frames.length} frames for weapon`);
 
 
     // Determine which frame to show based on weapon state
@@ -186,15 +182,12 @@ export class WeaponRenderer {
 
     // Load sprite for current frame
     const frame = frames[frameIndex];
-    console.log(`Loading sprite: ${frame.spriteName}${frame.frame}0`);
     const sprite = this.loadWeaponSprite(frame.spriteName, frame.frame);
 
     if (!sprite) {
       console.error(`Failed to load weapon sprite ${frame.spriteName}${frame.frame}0`);
       return;
     }
-
-    console.log(`Sprite loaded successfully: ${sprite.width}x${sprite.height}, offsets: (${sprite.leftoffset}, ${sprite.topoffset})`);
 
     // Update bob offset
     this.bobOffset = playerBob;
@@ -220,29 +213,31 @@ export class WeaponRenderer {
 
     // Position weapon using DOOM's weapon positioning
     // DOOM resolution: 320x200
-    // Weapons are positioned at the bottom-center of screen
-
     // Scale the weapon 1:1 with sprite pixels
     this.weaponMesh.scale.set(sprite.width, sprite.height, 1);
 
-    // DOOM weapon positioning:
-    // X: 160 (center of 320-wide screen)
-    // Y: 200 - 32 = 168 (32 units from bottom)
-    // The leftoffset and topoffset define where the weapon sprite's "anchor" is
+    // DOOM weapon sprite positioning:
+    // - leftoffset: pixels from sprite's left edge to its "origin" point
+    // - topoffset: pixels from sprite's top edge to its "origin" point
+    // - Weapon is drawn so the origin is at screen center (160) horizontally
+    // - and near the bottom of the screen vertically
+    //
+    // In DOOM screen coords (Y=0 at top):
+    //   sprite_left = 160 - leftoffset
+    //   sprite_top = WEAPONTOP - topoffset (WEAPONTOP = 32)
+    //
+    // Our camera: Y=0 at bottom, Y=200 at top
 
-    const SCREEN_WIDTH = 320;
-    const SCREEN_HEIGHT = 200;
-    const WEAPON_Y_OFFSET = 32; // From bottom of screen
+    // Sprite's left edge in screen coords
+    const spriteLeft = 160 - sprite.leftoffset;
+    // Sprite's top edge in DOOM coords (Y from top)
+    const spriteTopDoom = 32 - sprite.topoffset;
+    // Convert to our coords (Y from bottom)
+    const spriteTop = 200 - spriteTopDoom;
 
-    // Weapon anchor point in screen space
-    const anchorX = SCREEN_WIDTH / 2; // 160 - center of screen
-    const anchorY = SCREEN_HEIGHT - WEAPON_Y_OFFSET; // 168 - position from bottom
-
-    // Calculate final position
-    // The patch offsets tell us where the sprite's anchor is relative to its top-left corner
-    // We need to position the sprite so its anchor aligns with our desired screen position
-    const xPos = anchorX - sprite.leftoffset + (sprite.width / 2);
-    const yPos = anchorY - sprite.topoffset + (sprite.height / 2) + this.bobOffset;
+    // THREE.js positions at center of geometry
+    const xPos = spriteLeft + sprite.width / 2;
+    const yPos = spriteTop - sprite.height / 2 + this.bobOffset;
 
     this.weaponMesh.position.set(xPos, yPos, 0);
   }
@@ -252,11 +247,8 @@ export class WeaponRenderer {
    */
   render(renderer: THREE.WebGLRenderer): void {
     if (!this.weaponMesh) {
-      console.warn('WeaponRenderer.render() called but no weaponMesh exists');
       return;
     }
-
-    console.log(`Rendering weapon at position (${this.weaponMesh.position.x}, ${this.weaponMesh.position.y}), visible: ${this.weaponMesh.visible}`);
 
     // Render weapon scene on top of main scene
     renderer.autoClear = false;

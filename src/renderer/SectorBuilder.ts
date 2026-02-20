@@ -1,12 +1,13 @@
 /**
  * Sector (Floor/Ceiling) Geometry Builder
  * Converts DOOM sectors into three.js floor and ceiling meshes
- * Based on linuxdoom-1.10/r_plane.c
+ * Uses earcut triangulation for robust polygon filling
  */
 
 import * as THREE from 'three';
 import type { MapData, MapVertex } from '../level/types';
 import { doomToThree } from '../core';
+import earcut from 'earcut';
 
 export interface SectorGeometry {
   floorGeometry?: THREE.BufferGeometry;
@@ -19,53 +20,18 @@ export interface SectorGeometry {
 export class SectorBuilder {
   /**
    * Build all sector geometries (floors and ceilings)
-   * Uses subsectors from BSP tree for proper triangulation
+   * Uses linedef boundaries and earcut triangulation
    */
   static buildSectors(mapData: MapData): SectorGeometry[] {
     const sectors: SectorGeometry[] = [];
 
-    // First, map subsectors to their sectors
-    const subsectorToSector = this.mapSubsectorsToSectors(mapData);
-
-    // Group subsectors by sector
-    const sectorSubsectors = new Map<number, number[]>();
-    for (let i = 0; i < mapData.subsectors.length; i++) {
-      const sectorIdx = subsectorToSector[i];
-      if (sectorIdx >= 0) {
-        if (!sectorSubsectors.has(sectorIdx)) {
-          sectorSubsectors.set(sectorIdx, []);
-        }
-        sectorSubsectors.get(sectorIdx)!.push(i);
-      }
-    }
-
-    // Build geometry for each sector using its subsectors
     for (let i = 0; i < mapData.sectors.length; i++) {
       const sector = mapData.sectors[i];
-      const subsectors = sectorSubsectors.get(i) || [];
 
-      if (subsectors.length === 0) {
-        console.warn(`Sector ${i} has no subsectors`);
-        sectors.push({
-          floorTexture: sector.floorpic,
-          ceilingTexture: sector.ceilingpic,
-          lightLevel: sector.lightlevel,
-        });
-        continue;
-      }
+      // Get the boundary polygon(s) for this sector
+      const polygons = this.getSectorPolygons(mapData, i);
 
-      // Collect all vertices from subsectors
-      const vertices: MapVertex[] = [];
-      for (const subsectorIdx of subsectors) {
-        const subsector = mapData.subsectors[subsectorIdx];
-        for (let j = 0; j < subsector.numsegs; j++) {
-          const seg = mapData.segs[subsector.firstseg + j];
-          vertices.push(mapData.vertexes[seg.v1]);
-        }
-      }
-
-      if (vertices.length < 3) {
-        console.warn(`Sector ${i} has insufficient vertices`);
+      if (polygons.length === 0) {
         sectors.push({
           floorTexture: sector.floorpic,
           ceilingTexture: sector.ceilingpic,
@@ -75,16 +41,14 @@ export class SectorBuilder {
       }
 
       // Create floor and ceiling geometry
-      const floorGeometry = this.createFlatGeometryFromSubsectors(
-        mapData,
-        subsectors,
+      const floorGeometry = this.createFlatGeometry(
+        polygons,
         sector.floorheight,
         false
       );
 
-      const ceilingGeometry = this.createFlatGeometryFromSubsectors(
-        mapData,
-        subsectors,
+      const ceilingGeometry = this.createFlatGeometry(
+        polygons,
         sector.ceilingheight,
         true
       );
@@ -102,38 +66,135 @@ export class SectorBuilder {
   }
 
   /**
-   * Map each subsector to its sector index
+   * Get all boundary polygons for a sector
+   * A sector can have multiple polygons (outer boundary + holes)
    */
-  private static mapSubsectorsToSectors(mapData: MapData): number[] {
-    const result: number[] = new Array(mapData.subsectors.length).fill(-1);
+  private static getSectorPolygons(mapData: MapData, sectorIdx: number): MapVertex[][] {
+    // Find all lines that border this sector
+    const sectorLines: Array<{ v1: MapVertex; v2: MapVertex }> = [];
 
-    for (let i = 0; i < mapData.subsectors.length; i++) {
-      const subsector = mapData.subsectors[i];
-      if (subsector.numsegs === 0) continue;
+    for (const linedef of mapData.linedefs) {
+      const frontSide = linedef.sidenum[0];
+      const backSide = linedef.sidenum[1];
 
-      const firstSeg = mapData.segs[subsector.firstseg];
-      if (firstSeg.linedef === -1 || firstSeg.linedef === 0xFFFF) {
-        continue; // No linedef (miniseg)
+      let isFrontSector = false;
+      let isBackSector = false;
+
+      if (frontSide >= 0 && frontSide < mapData.sidedefs.length) {
+        if (mapData.sidedefs[frontSide].sector === sectorIdx) {
+          isFrontSector = true;
+        }
+      }
+      if (backSide >= 0 && backSide < mapData.sidedefs.length) {
+        if (mapData.sidedefs[backSide].sector === sectorIdx) {
+          isBackSector = true;
+        }
       }
 
-      const linedef = mapData.linedefs[firstSeg.linedef];
-      const sidenum = linedef.sidenum[firstSeg.side];
+      if (isFrontSector || isBackSector) {
+        const v1 = mapData.vertexes[linedef.v1];
+        const v2 = mapData.vertexes[linedef.v2];
 
-      if (sidenum !== -1 && sidenum !== 0xFFFF) {
-        const sidedef = mapData.sidedefs[sidenum];
-        result[i] = sidedef.sector;
+        // Add line with correct winding for the sector
+        // Front side: v1 to v2 is the sector boundary (CCW winding)
+        // Back side: v2 to v1 is the sector boundary
+        if (isFrontSector) {
+          sectorLines.push({ v1, v2 });
+        } else {
+          sectorLines.push({ v1: v2, v2: v1 });
+        }
       }
     }
 
-    return result;
+    if (sectorLines.length < 3) {
+      return [];
+    }
+
+    // Build closed loops from the lines
+    const polygons = this.buildPolygonsFromLines(sectorLines);
+    return polygons;
   }
 
   /**
-   * Create geometry from subsectors (convex polygons from BSP)
+   * Build closed polygons from a set of line segments
    */
-  private static createFlatGeometryFromSubsectors(
-    mapData: MapData,
-    subsectors: number[],
+  private static buildPolygonsFromLines(
+    lines: Array<{ v1: MapVertex; v2: MapVertex }>
+  ): MapVertex[][] {
+    const polygons: MapVertex[][] = [];
+    const used = new Set<number>();
+
+    // Helper to find vertex key
+    const vertexKey = (v: MapVertex) => `${v.x},${v.y}`;
+
+    // Build adjacency map: for each vertex, which lines start there?
+    const startMap = new Map<string, number[]>();
+    for (let i = 0; i < lines.length; i++) {
+      const key = vertexKey(lines[i].v1);
+      if (!startMap.has(key)) {
+        startMap.set(key, []);
+      }
+      startMap.get(key)!.push(i);
+    }
+
+    // Find closed loops
+    for (let startIdx = 0; startIdx < lines.length; startIdx++) {
+      if (used.has(startIdx)) continue;
+
+      const polygon: MapVertex[] = [];
+      let currentIdx = startIdx;
+      let iterations = 0;
+      const maxIterations = lines.length + 1;
+
+      while (iterations < maxIterations) {
+        if (used.has(currentIdx)) {
+          // We've completed a loop or hit a dead end
+          break;
+        }
+
+        used.add(currentIdx);
+        const line = lines[currentIdx];
+        polygon.push(line.v1);
+
+        // Find next line that starts at v2
+        const nextKey = vertexKey(line.v2);
+        const candidates = startMap.get(nextKey) || [];
+
+        let nextIdx = -1;
+        for (const idx of candidates) {
+          if (!used.has(idx)) {
+            nextIdx = idx;
+            break;
+          }
+        }
+
+        if (nextIdx === -1) {
+          // Check if we've closed the loop
+          if (vertexKey(line.v2) === vertexKey(lines[startIdx].v1)) {
+            // Loop closed
+            break;
+          }
+          // Dead end - can't continue
+          break;
+        }
+
+        currentIdx = nextIdx;
+        iterations++;
+      }
+
+      if (polygon.length >= 3) {
+        polygons.push(polygon);
+      }
+    }
+
+    return polygons;
+  }
+
+  /**
+   * Create floor/ceiling geometry using earcut triangulation
+   */
+  private static createFlatGeometry(
+    polygons: MapVertex[][],
     height: number,
     faceDown: boolean
   ): THREE.BufferGeometry {
@@ -146,30 +207,35 @@ export class SectorBuilder {
       ? new THREE.Vector3(0, -1, 0)
       : new THREE.Vector3(0, 1, 0);
 
-    // Process each subsector (each is a convex polygon)
-    for (const subsectorIdx of subsectors) {
-      const subsector = mapData.subsectors[subsectorIdx];
-      const verts: MapVertex[] = [];
+    for (const polygon of polygons) {
+      if (polygon.length < 3) continue;
 
-      // Collect vertices for this subsector
-      for (let i = 0; i < subsector.numsegs; i++) {
-        const seg = mapData.segs[subsector.firstseg + i];
-        verts.push(mapData.vertexes[seg.v1]);
+      // Prepare data for earcut
+      // Earcut expects a flat array of coordinates [x1, y1, x2, y2, ...]
+      const coords: number[] = [];
+      for (const v of polygon) {
+        coords.push(v.x, v.y);
       }
 
-      if (verts.length < 3) continue;
+      // Triangulate using earcut
+      const triangles = earcut(coords);
 
-      // Fan triangulation for convex polygon (subsectors are always convex)
-      for (let i = 1; i < verts.length - 1; i++) {
-        const v0 = verts[0];
-        const v1 = verts[i];
-        const v2 = verts[i + 1];
+      // Create triangles
+      for (let i = 0; i < triangles.length; i += 3) {
+        const i0 = triangles[i];
+        const i1 = triangles[i + 1];
+        const i2 = triangles[i + 2];
+
+        const v0 = polygon[i0];
+        const v1 = polygon[i1];
+        const v2 = polygon[i2];
 
         const p0 = doomToThree(v0.x, v0.y, height);
         const p1 = doomToThree(v1.x, v1.y, height);
         const p2 = doomToThree(v2.x, v2.y, height);
 
         if (faceDown) {
+          // Reverse winding for ceiling
           positions.push(p0.x, p0.y, p0.z);
           positions.push(p2.x, p2.y, p2.z);
           positions.push(p1.x, p1.y, p1.z);
@@ -178,6 +244,7 @@ export class SectorBuilder {
           uvs.push(v2.x / 64, v2.y / 64);
           uvs.push(v1.x / 64, v1.y / 64);
         } else {
+          // Normal winding for floor
           positions.push(p0.x, p0.y, p0.z);
           positions.push(p1.x, p1.y, p1.z);
           positions.push(p2.x, p2.y, p2.z);
@@ -199,5 +266,4 @@ export class SectorBuilder {
 
     return geometry;
   }
-
 }

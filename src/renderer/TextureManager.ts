@@ -176,7 +176,6 @@ export class TextureManager {
 
     // Check cache
     if (this.flatCache.has(upperName)) {
-      console.log(`Flat "${upperName}" found in cache`);
       return this.flatCache.get(upperName)!;
     }
 
@@ -191,16 +190,12 @@ export class TextureManager {
       return this.createMissingFlat(upperName);
     }
 
-    console.log(`Loading flat "${upperName}" from WAD...`);
-
     // Try to load flat
     const flatData = this.wad.readLump(upperName);
     if (!flatData) {
       console.error(`Flat "${name}" not found in WAD`);
       return this.createMissingFlat(upperName);
     }
-
-    console.log(`Flat data loaded: ${flatData.byteLength} bytes`);
 
     try {
       const canvas = FlatLoader.flatToCanvas(flatData, this.palette);
@@ -284,14 +279,12 @@ export class TextureManager {
    * Create material for a flat (floor/ceiling) with light level
    */
   createFlatMaterial(flatName: string, lightLevel: number): THREE.MeshBasicMaterial {
-    console.log(`Creating flat material for "${flatName}", lightLevel: ${lightLevel}`);
     const texture = this.getFlat(flatName);
 
     // Convert DOOM light level (0-255) to brightness multiplier
     // DOOM uses 0-255, where 255 is full bright
     // Use a minimum of 0.3 to ensure dark areas are still visible
     const brightness = Math.max(0.3, Math.min(1.0, lightLevel / 255));
-    console.log(`Brightness multiplier: ${brightness.toFixed(2)}`);
 
     if (!texture) {
       console.error(`No texture for flat "${flatName}" - using magenta placeholder`);
@@ -301,8 +294,6 @@ export class TextureManager {
         side: THREE.DoubleSide,
       });
     }
-
-    console.log(`Texture loaded for "${flatName}", creating material with brightness ${brightness.toFixed(2)}`);
 
     const material = new THREE.MeshBasicMaterial({
       map: texture,

@@ -26,6 +26,7 @@ export class LevelRenderer {
   private thingSpawner: ThingSpawner;
   private wad: WADReader;
   private palette: Uint8ClampedArray;
+  private skyRenderer: SkyRenderer;
 
   constructor(
     scene: THREE.Scene,
@@ -43,6 +44,7 @@ export class LevelRenderer {
     this.wallMeshes = [];
     this.spriteRenderer = new SpriteRenderer(scene, wad, palette);
     this.thingSpawner = new ThingSpawner();
+    this.skyRenderer = new SkyRenderer();
   }
 
   /**
@@ -150,11 +152,18 @@ export class LevelRenderer {
    * Add sky to scene
    */
   addSky(wad: WADReader, palette: Uint8ClampedArray): void {
-    const sky = SkyRenderer.createSky(wad, palette, 'SKY1');
+    const sky = this.skyRenderer.createSky(wad, palette, 'SKY1');
     if (sky) {
       this.scene.add(sky);
       console.log('Sky added');
     }
+  }
+
+  /**
+   * Update sky position to follow camera
+   */
+  updateSky(cameraPosition: THREE.Vector3): void {
+    this.skyRenderer.update(cameraPosition);
   }
 
   /**
