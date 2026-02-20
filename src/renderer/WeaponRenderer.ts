@@ -143,11 +143,16 @@ export class WeaponRenderer {
    * Update weapon sprite based on weapon state
    */
   update(weapon: PlayerWeapon, playerBob: number = 0): void {
+    console.log(`WeaponRenderer.update() called - weapon: ${weapon.currentWeapon}, state: ${weapon.state}`);
+
     const frames = WEAPON_FRAMES.get(weapon.currentWeapon);
     if (!frames || frames.length === 0) {
-      console.warn(`No frames for weapon ${WeaponType[weapon.currentWeapon]}`);
+      console.error(`No frames for weapon ${WeaponType[weapon.currentWeapon]} (type: ${weapon.currentWeapon})`);
       return;
     }
+
+    console.log(`Found ${frames.length} frames for weapon`);
+
 
     // Determine which frame to show based on weapon state
     let frameIndex = 0;
@@ -181,9 +186,15 @@ export class WeaponRenderer {
 
     // Load sprite for current frame
     const frame = frames[frameIndex];
+    console.log(`Loading sprite: ${frame.spriteName}${frame.frame}0`);
     const sprite = this.loadWeaponSprite(frame.spriteName, frame.frame);
 
-    if (!sprite) return;
+    if (!sprite) {
+      console.error(`Failed to load weapon sprite ${frame.spriteName}${frame.frame}0`);
+      return;
+    }
+
+    console.log(`Sprite loaded successfully: ${sprite.width}x${sprite.height}, offsets: (${sprite.leftoffset}, ${sprite.topoffset})`);
 
     // Update bob offset
     this.bobOffset = playerBob;
@@ -240,7 +251,12 @@ export class WeaponRenderer {
    * Render weapon overlay
    */
   render(renderer: THREE.WebGLRenderer): void {
-    if (!this.weaponMesh) return;
+    if (!this.weaponMesh) {
+      console.warn('WeaponRenderer.render() called but no weaponMesh exists');
+      return;
+    }
+
+    console.log(`Rendering weapon at position (${this.weaponMesh.position.x}, ${this.weaponMesh.position.y}), visible: ${this.weaponMesh.visible}`);
 
     // Render weapon scene on top of main scene
     renderer.autoClear = false;
