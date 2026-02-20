@@ -1,0 +1,23 @@
+{
+  "name": "doom-threejs",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "DOOM (1993) reimplemented with three.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest",
+    "test:ui": "vitest --ui"
+  },
+  "dependencies": {
+    "three": "^0.160.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.160.0",
+    "@vitest/ui": "^1.2.0",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.11",
+    "vitest": "^1.2.0"
+  }
+}
