@@ -279,7 +279,7 @@ class DoomGame {
     if (this.levelRenderer && this.playerMobj) {
       const x = FixedToFloat(this.playerMobj.x);
       const y = FixedToFloat(this.playerMobj.y);
-      this.levelRenderer.updateVisibility(x, y);
+      this.levelRenderer.updateVisibility(x, y, this.camera.position);
     }
 
     // Render scene

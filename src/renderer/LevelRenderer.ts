@@ -11,6 +11,8 @@ import { SectorBuilder } from './SectorBuilder';
 import { TextureManager } from './TextureManager';
 import { SkyRenderer } from './SkyRenderer';
 import { BSPRenderer } from './BSPRenderer';
+import { SpriteRenderer } from './SpriteRenderer';
+import { ThingSpawner } from '../game/ThingSpawner';
 
 export class LevelRenderer {
   private scene: THREE.Scene;
@@ -20,6 +22,10 @@ export class LevelRenderer {
   private sectorMeshes: Map<number, THREE.Mesh[]>; // sector index -> meshes
   private wallMeshes: THREE.Mesh[];
   private useBSPCulling: boolean = true;
+  private spriteRenderer: SpriteRenderer;
+  private thingSpawner: ThingSpawner;
+  private wad: WADReader;
+  private palette: Uint8ClampedArray;
 
   constructor(
     scene: THREE.Scene,
@@ -28,11 +34,15 @@ export class LevelRenderer {
     mapData: MapData
   ) {
     this.scene = scene;
+    this.wad = wad;
+    this.palette = palette;
     this.textureManager = new TextureManager(wad, palette);
     this.mapData = mapData;
     this.bspRenderer = new BSPRenderer(mapData);
     this.sectorMeshes = new Map();
     this.wallMeshes = [];
+    this.spriteRenderer = new SpriteRenderer(scene, wad, palette);
+    this.thingSpawner = new ThingSpawner();
   }
 
   /**
@@ -97,6 +107,40 @@ export class LevelRenderer {
 
     console.log('Level geometry complete');
     console.log(`BSP culling: ${this.useBSPCulling ? 'enabled' : 'disabled'}`);
+
+    // Spawn things (items, monsters, decorations)
+    this.spawnThings();
+  }
+
+  /**
+   * Spawn all things from map data
+   */
+  private spawnThings(): void {
+    console.log('Spawning things...');
+
+    const spawnedThings = this.thingSpawner.spawnThings(this.mapData);
+
+    // Create sprites for spawned things
+    for (const spawned of spawnedThings) {
+      // Set thing z position to floor height
+      // For now, assume floor height of 0 (will be improved with sector detection)
+      spawned.mobj.z = 0;
+      spawned.mobj.floorz = 0;
+      spawned.mobj.ceilingz = 128 << 16;
+
+      // Add sprite to scene
+      this.spriteRenderer.addSprite(
+        spawned.mobj,
+        spawned.spriteName,
+        spawned.frame,
+        0 // rotation 0 for now
+      );
+
+      // Apply sector lighting (using default 160 for now)
+      this.spriteRenderer.applySectorLighting(spawned.mobj, 160);
+    }
+
+    console.log(`Spawned ${spawnedThings.length} things`);
   }
 
   /**
@@ -115,8 +159,9 @@ export class LevelRenderer {
    * Call this each frame from the main render loop
    * @param cameraX - Camera X position in DOOM coordinates
    * @param cameraY - Camera Y position in DOOM coordinates
+   * @param cameraPosition - three.js camera position for sprite billboarding
    */
-  updateVisibility(cameraX: number, cameraY: number): void {
+  updateVisibility(cameraX: number, cameraY: number, cameraPosition?: THREE.Vector3): void {
     if (!this.useBSPCulling) {
       // BSP culling disabled - show everything
       return;
@@ -144,6 +189,11 @@ export class LevelRenderer {
 
     // For now, keep all walls visible
     // In a more advanced implementation, we'd track which walls belong to which subsectors
+
+    // Update sprite positions
+    if (cameraPosition) {
+      this.spriteRenderer.update(cameraPosition);
+    }
   }
 
   /**
@@ -253,9 +303,17 @@ export class LevelRenderer {
   }
 
   /**
+   * Get sprite renderer for external access
+   */
+  getSpriteRenderer(): SpriteRenderer {
+    return this.spriteRenderer;
+  }
+
+  /**
    * Clean up resources
    */
   dispose(): void {
     this.textureManager.clearCache();
+    this.spriteRenderer.dispose();
   }
 }

@@ -72,7 +72,7 @@ export interface Mobj {
   // State
   flags: number; // MobjFlags
   health: number;
-  type: MobjType;
+  type: number; // Thing type number
 
   // Player-specific (only valid if type === PLAYER)
   player?: PlayerState;
