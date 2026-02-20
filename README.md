@@ -4,20 +4,31 @@ A modern reimplementation of DOOM (1993) using three.js and TypeScript. This pro
 
 ## Project Status
 
-**Current Phase**: Phase 0 - Foundation & Data Pipeline ✅
+**Current Phase**: Phase 1 - Static Geometry Rendering ✅
 
 ### Completed
-- ✅ TypeScript + Vite + three.js project setup
-- ✅ Module structure (core, wad, level, graphics, renderer, etc.)
-- ✅ WAD file parser (header, directory, lump lookup)
-- ✅ Map data parsers (VERTEXES, LINEDEFS, SIDEDEFS, SECTORS, THINGS, BSP data, BLOCKMAP)
-- ✅ Palette & colormap loaders (PLAYPAL, COLORMAP)
-- ✅ Patch decoder (column-based format with transparency)
-- ✅ Flat loader (64x64 floor/ceiling textures)
-- ✅ Vitest testing framework
+- ✅ **Phase 0**: Foundation & Data Pipeline
+  - TypeScript + Vite + three.js project setup
+  - Module structure (core, wad, level, graphics, renderer, etc.)
+  - WAD file parser (header, directory, lump lookup)
+  - Map data parsers (VERTEXES, LINEDEFS, SIDEDEFS, SECTORS, THINGS, BSP data, BLOCKMAP)
+  - Palette & colormap loaders (PLAYPAL, COLORMAP)
+  - Patch decoder (column-based format with transparency)
+  - Flat loader (64x64 floor/ceiling textures)
+  - Vitest testing framework
+
+- ✅ **Phase 1**: Static Geometry Rendering
+  - Coordinate system conversion (DOOM → three.js)
+  - Wall geometry builder (one-sided and two-sided walls)
+  - Sector geometry builder (floors and ceilings with triangulation)
+  - Texture manager (wall textures and flats)
+  - Material system with light level support
+  - Sky rendering
+  - Level renderer
+  - E1M1 fully rendered with orbit controls
 
 ### Next Steps
-- Phase 1: Static Geometry Rendering (render E1M1 in three.js)
+- Phase 2: Core Game Loop & Math (35 Hz tick rate, fixed-point math)
 
 ## Development
 

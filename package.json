@@ -11,7 +11,8 @@
     "test:ui": "vitest --ui"
   },
   "dependencies": {
-    "three": "^0.160.0"
+    "three": "^0.160.0",
+    "three-stdlib": "^2.29.0"
   },
   "devDependencies": {
     "@types/three": "^0.160.0",

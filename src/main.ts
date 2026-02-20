@@ -6,21 +6,30 @@
  */
 
 import * as THREE from 'three';
-import { runPhase0Demo } from './demo';
+import { OrbitControls } from 'three-stdlib';
+import { loadWAD } from './demo';
+import { MapParser } from './level';
+import { PaletteLoader } from './graphics';
+import { LevelRenderer } from './renderer';
+import { doomToThree, doomAngleToThree } from './core';
 
 class DoomGame {
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
   private renderer: THREE.WebGLRenderer;
+  private controls: OrbitControls;
   private infoElement: HTMLElement;
+  private levelRenderer?: LevelRenderer;
 
   constructor() {
     // Initialize three.js scene
     this.scene = new THREE.Scene();
+    this.scene.background = new THREE.Color(0x000000);
+
     this.camera = new THREE.PerspectiveCamera(
       75, // FOV - DOOM's FOV is about 73.74 degrees
       window.innerWidth / window.innerHeight,
-      0.1,
+      1,
       10000
     );
 
@@ -29,26 +38,22 @@ class DoomGame {
     this.renderer.setPixelRatio(window.devicePixelRatio);
     document.body.appendChild(this.renderer.domElement);
 
+    // Set up orbit controls for camera navigation
+    this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+    this.controls.enableDamping = true;
+    this.controls.dampingFactor = 0.05;
+    this.controls.screenSpacePanning = false;
+    this.controls.minDistance = 10;
+    this.controls.maxDistance = 5000;
+
     // Get info element
     this.infoElement = document.getElementById('info')!;
-
-    // Set up basic scene
-    this.setupScene();
 
     // Handle window resize
     window.addEventListener('resize', () => this.onResize());
 
     // Update info
-    this.updateInfo('DOOM three.js initialized. Phase 0: Ready to load WAD files.');
-  }
-
-  private setupScene(): void {
-    // Add basic lighting for testing
-    const ambientLight = new THREE.AmbientLight(0xffffff, 1);
-    this.scene.add(ambientLight);
-
-    // Position camera
-    this.camera.position.set(0, 56, 0); // 56 units = DOOM player height
+    this.updateInfo('DOOM three.js - Loading...');
   }
 
   private onResize(): void {
@@ -63,12 +68,74 @@ class DoomGame {
 
   public async init(): Promise<void> {
     try {
-      // Run Phase 0 demo - load and parse WAD
-      this.updateInfo('Phase 0: Loading WAD file...');
-      await runPhase0Demo('/DOOM.WAD');
-      this.updateInfo('Phase 0 Complete! Check console for details.');
+      this.updateInfo('Loading WAD file...');
+
+      // Load WAD
+      const wad = await loadWAD('/DOOM.WAD');
+      console.log('WAD loaded successfully');
+
+      // Load palette
+      const playpalData = wad.readLump('PLAYPAL');
+      if (!playpalData) {
+        throw new Error('PLAYPAL not found');
+      }
+      const palette = PaletteLoader.loadPalette(playpalData);
+      const rgbaPalette = PaletteLoader.paletteToRGBA(palette, 255);
+
+      // Find first map
+      const maps = wad.findMapLumps();
+      if (maps.length === 0) {
+        throw new Error('No maps found in WAD');
+      }
+
+      const mapName = maps[0];
+      this.updateInfo(`Parsing ${mapName}...`);
+
+      // Parse map
+      const mapLumps = wad.getMapLumps(mapName);
+      if (!mapLumps) {
+        throw new Error(`Map ${mapName} not found`);
+      }
+
+      const mapData = MapParser.parseMap(mapName, mapLumps, wad);
+      console.log(`Parsed ${mapName}`);
+
+      // Create level renderer
+      this.updateInfo(`Building ${mapName} geometry...`);
+      this.levelRenderer = new LevelRenderer(this.scene, wad, rgbaPalette, mapData);
+
+      // Add sky
+      this.levelRenderer.addSky(wad, rgbaPalette);
+
+      // Build level geometry
+      this.levelRenderer.buildLevel();
+
+      // Position camera at player start
+      const playerStart = this.levelRenderer.getPlayerStart();
+      if (playerStart) {
+        const cameraPos = doomToThree(playerStart.x, playerStart.y, playerStart.z);
+        this.camera.position.copy(cameraPos);
+
+        // Look in the direction of player start angle
+        const angle = doomAngleToThree(playerStart.angle);
+        const lookTarget = cameraPos.clone();
+        lookTarget.x += Math.cos(angle) * 100;
+        lookTarget.z += Math.sin(angle) * 100;
+        this.controls.target.copy(lookTarget);
+        this.controls.update();
+
+        console.log(`Camera positioned at player start: ${cameraPos.x}, ${cameraPos.y}, ${cameraPos.z}`);
+      } else {
+        // Default camera position
+        this.camera.position.set(0, 100, 0);
+        this.controls.target.set(0, 0, 0);
+        this.controls.update();
+      }
+
+      this.updateInfo(`${mapName} loaded! Use mouse to look around, scroll to zoom.`);
+      console.log('Level rendering complete');
     } catch (error) {
-      console.error('Error loading WAD:', error);
+      console.error('Error initializing game:', error);
       this.updateInfo(`Error: ${error}`);
     }
   }
@@ -79,8 +146,13 @@ class DoomGame {
 
   private animate = (): void => {
     requestAnimationFrame(this.animate);
+
+    // Update controls
+    this.controls.update();
+
+    // Render scene
     this.renderer.render(this.scene, this.camera);
-  }
+  };
 }
 
 // Initialize the game when DOM is ready
