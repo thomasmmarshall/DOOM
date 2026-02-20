@@ -10,13 +10,15 @@ import { OrbitControls } from 'three-stdlib';
 import { loadWAD } from './demo';
 import { MapParser } from './level';
 import { PaletteLoader } from './graphics';
-import { LevelRenderer } from './renderer';
+import { LevelRenderer, WeaponRenderer } from './renderer';
 import { doomToThree, doomAngleToThree, doomAngleToThreeRadians, initTables, GameTicker, TICRATE, IntToFixed, FixedToFloat, DegreesToAngle } from './core';
 import { InputManager } from './input';
 import { createPlayerMobj, type Mobj, ThinkerManager, TriggerSystem } from './game';
 import { movePlayer, applyFriction, applyGravity, applyZMomentum, calculateViewZ, applyCollision } from './physics';
 import type { MapData } from './level';
 import { DoorManager, PlatformManager } from './sectors';
+import { StatusBar, type PlayerStats } from './ui';
+import { createPlayerWeapon, updateWeapon, fireWeapon, switchWeapon, WeaponType } from './weapons/WeaponSystem';
 
 class DoomGame {
   private scene: THREE.Scene;
@@ -35,6 +37,8 @@ class DoomGame {
   private doorManager?: DoorManager;
   private platformManager?: PlatformManager;
   private triggerSystem?: TriggerSystem;
+  private weaponRenderer?: WeaponRenderer;
+  private statusBar?: StatusBar;
 
   constructor() {
     // Initialize trigonometry tables
@@ -157,6 +161,11 @@ class DoomGame {
       this.updateInfo(`Building ${mapName} geometry...`);
       this.levelRenderer = new LevelRenderer(this.scene, wad, rgbaPalette, this.mapData);
 
+      // Create weapon renderer and HUD
+      this.weaponRenderer = new WeaponRenderer(wad, rgbaPalette);
+      this.statusBar = new StatusBar(wad, rgbaPalette);
+      await this.statusBar.init();
+
       // Initialize sector managers with renderer callbacks
       this.doorManager = new DoorManager(
         this.mapData,
@@ -190,6 +199,11 @@ class DoomGame {
         this.playerMobj.floorz = IntToFixed(playerStart.floorz);
         this.playerMobj.ceilingz = IntToFixed(playerStart.ceilingz);
 
+        // Initialize player weapon
+        if (this.playerMobj.player) {
+          this.playerMobj.player.weapon = createPlayerWeapon();
+        }
+
         console.log(`Player created at (${playerStart.x}, ${playerStart.y}, ${playerStart.z}) angle ${playerStart.angle}°`);
         console.log(`Floor: ${playerStart.floorz}, Ceiling: ${playerStart.ceilingz}`);
 
@@ -213,7 +227,7 @@ class DoomGame {
         if (e.code === 'KeyP' && this.ticker) {
           this.ticker.start();
           console.log('Game ticker started');
-          this.updateInfo(`${mapName} - Physics active. WASD to move, mouse to look, SPACE to use.`);
+          this.updateInfo(`${mapName} - Physics active. WASD to move, mouse to look, SPACE to use, 1-7 weapons, CTRL to fire.`);
         } else if (e.code === 'KeyF') {
           this.useOrbitControls = !this.useOrbitControls;
           this.controls.enabled = this.useOrbitControls;
@@ -224,6 +238,25 @@ class DoomGame {
         } else if (e.code === 'Space' && this.playerMobj && this.triggerSystem) {
           // Use action - find nearest usable line
           this.tryUseAction();
+        } else if (e.code === 'ControlLeft' || e.code === 'ControlRight') {
+          // Fire weapon
+          this.firePlayerWeapon();
+        } else if (e.code.startsWith('Digit') && this.playerMobj?.player?.weapon) {
+          // Weapon switching (1-7)
+          const digit = parseInt(e.code.substring(5));
+          if (digit >= 1 && digit <= 7) {
+            const weaponType = digit - 1; // Convert to WeaponType enum (0-6)
+            switchWeapon(this.playerMobj.player.weapon, weaponType);
+            console.log(`Switching to weapon ${digit}`);
+          }
+        }
+      });
+
+      // Add mouse click for weapon firing
+      window.addEventListener('mousedown', (e) => {
+        if (e.button === 0 && !this.useOrbitControls) {
+          // Left click - fire weapon
+          this.firePlayerWeapon();
         }
       });
     } catch (error) {
@@ -278,6 +311,39 @@ class DoomGame {
       this.platformManager.updatePlatforms();
     }
 
+    // Update player weapon
+    if (this.playerMobj.player?.weapon) {
+      updateWeapon(this.playerMobj.player.weapon);
+    }
+
+    // Update weapon renderer
+    if (this.weaponRenderer && this.playerMobj.player?.weapon) {
+      const bob = FixedToFloat(this.playerMobj.player.bob);
+      this.weaponRenderer.update(this.playerMobj.player.weapon, bob);
+    }
+
+    // Update HUD
+    if (this.statusBar && this.playerMobj.player) {
+      const stats: PlayerStats = {
+        health: this.playerMobj.health,
+        armor: 0, // TODO: Add armor to player state
+        ammo: this.playerMobj.player.ammo?.bullets || 0,
+        maxAmmo: 200,
+        keys: {
+          blueCard: false,
+          yellowCard: false,
+          redCard: false,
+          blueSkull: false,
+          yellowSkull: false,
+          redSkull: false,
+        },
+        weapons: [true, true, false, false, false, false, false], // Have fist and pistol
+        currentWeapon: this.playerMobj.player.weapon?.currentWeapon || 0,
+        face: 0,
+      };
+      this.statusBar.render(stats);
+    }
+
     // Log every second
     if (this.tickCount % TICRATE === 0) {
       const x = FixedToFloat(this.playerMobj.x);
@@ -285,6 +351,21 @@ class DoomGame {
       const z = FixedToFloat(this.playerMobj.z);
       const thinkerCount = this.thinkerManager.getCount();
       console.log(`Tick ${tick}: Player at (${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)}) | Thinkers: ${thinkerCount}`);
+    }
+  }
+
+  /**
+   * Fire player weapon
+   */
+  private firePlayerWeapon(): void {
+    if (!this.playerMobj?.player?.weapon) return;
+
+    const success = fireWeapon(this.playerMobj.player.weapon, this.playerMobj);
+    if (success) {
+      // Consume ammo
+      if (this.playerMobj.player.ammo) {
+        this.playerMobj.player.ammo.bullets = Math.max(0, this.playerMobj.player.ammo.bullets - 1);
+      }
     }
   }
 
@@ -400,6 +481,11 @@ class DoomGame {
 
     // Render scene
     this.renderer.render(this.scene, this.camera);
+
+    // Render weapon overlay (in first-person mode only)
+    if (!this.useOrbitControls && this.weaponRenderer) {
+      this.weaponRenderer.render(this.renderer);
+    }
   };
 }
 

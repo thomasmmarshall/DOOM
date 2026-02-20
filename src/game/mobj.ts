@@ -121,6 +121,12 @@ export function createPlayerMobj(x: Fixed, y: Fixed, z: Fixed, angle: Angle): Mo
       viewheight: 41 << 16, // 41 units view height
       deltaviewheight: 0,
       bob: 0,
+      ammo: {
+        bullets: 50,
+        shells: 0,
+        rockets: 0,
+        cells: 0,
+      },
     },
   };
 }

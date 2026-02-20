@@ -5,3 +5,4 @@ export * from './SkyRenderer';
 export * from './LevelRenderer';
 export * from './BSPRenderer';
 export * from './SpriteRenderer';
+export * from './WeaponRenderer';
