@@ -52,6 +52,18 @@ export class FlatLoader {
     imageData.data.set(rgba);
     ctx.putImageData(imageData, 0, 0);
 
+    // Debug: Check if canvas is all black
+    let hasNonBlackPixel = false;
+    for (let i = 0; i < rgba.length; i += 4) {
+      if (rgba[i] !== 0 || rgba[i + 1] !== 0 || rgba[i + 2] !== 0) {
+        hasNonBlackPixel = true;
+        break;
+      }
+    }
+    if (!hasNonBlackPixel) {
+      console.warn(`Flat decoded to all black pixels (may be intentional)`);
+    }
+
     return canvas;
   }
 }

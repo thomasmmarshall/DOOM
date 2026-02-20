@@ -165,7 +165,10 @@ export class TextureManager {
    * Get or load a flat (floor/ceiling) texture
    */
   getFlat(name: string): THREE.CanvasTexture | null {
-    if (!name || name === '-') return null;
+    if (!name || name === '-') {
+      console.warn(`Invalid flat name: "${name}"`);
+      return this.createMissingFlat('INVALID');
+    }
 
     const upperName = name.toUpperCase();
 
@@ -176,7 +179,7 @@ export class TextureManager {
 
     if (!this.initialized) {
       console.warn('TextureManager not initialized! Call init() first.');
-      return null;
+      return this.createMissingFlat('NOTINIT');
     }
 
     // Check if this flat exists in our directory
@@ -199,6 +202,7 @@ export class TextureManager {
       texture.minFilter = THREE.NearestFilter;
       texture.wrapS = THREE.RepeatWrapping;
       texture.wrapT = THREE.RepeatWrapping;
+      texture.needsUpdate = true; // Ensure THREE.js knows to upload the texture
 
       this.flatCache.set(upperName, texture);
       return texture;
@@ -265,11 +269,41 @@ export class TextureManager {
    * Create material for a flat (floor/ceiling) with light level
    */
   createFlatMaterial(flatName: string, lightLevel: number): THREE.MeshBasicMaterial {
-    const texture = this.getFlat(flatName);
+    let texture = this.getFlat(flatName);
 
     // Convert DOOM light level (0-255) to brightness multiplier
     // Use /255 for more accurate brightness, with a minimum floor
     const brightness = Math.max(0.2, Math.min(1.0, lightLevel / 255));
+
+    if (!texture) {
+      console.warn(`No texture for flat "${flatName}"`);
+      // Create a material with visible color instead of black
+      return new THREE.MeshBasicMaterial({
+        color: 0xFF00FF,
+        side: THREE.DoubleSide,
+      });
+    }
+
+    // Check if texture appears to be all black by examining the source canvas
+    const canvas = (texture.image as HTMLCanvasElement);
+    if (canvas && canvas.getContext) {
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        const imageData = ctx.getImageData(0, 0, Math.min(64, canvas.width), Math.min(64, canvas.height));
+        let hasColor = false;
+        for (let i = 0; i < imageData.data.length; i += 4) {
+          // Check if any pixel has RGB values > 10 (to account for very dark but not pure black)
+          if (imageData.data[i] > 10 || imageData.data[i + 1] > 10 || imageData.data[i + 2] > 10) {
+            hasColor = true;
+            break;
+          }
+        }
+        if (!hasColor) {
+          console.warn(`Flat "${flatName}" is all black - replacing with placeholder`);
+          texture = this.createMissingFlat(flatName + '_BLACK');
+        }
+      }
+    }
 
     const material = new THREE.MeshBasicMaterial({
       map: texture,
