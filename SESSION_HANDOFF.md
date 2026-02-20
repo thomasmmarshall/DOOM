@@ -13,19 +13,21 @@
 - Mouse look (smooth rotation)
 - Wall collision detection with sliding
 - First-person camera
+- Player spawns at correct sector floor height
+- Improved texture rendering and lighting
+- BSP tree visibility culling (Phase 4)
 
-### Critical Issues 🔴
+### Recent Fixes ✅
 
-1. **Map looks bad** - Rendering quality is poor
-   - Textures may be misaligned or wrong size
-   - UV mapping likely incorrect
-   - Lighting too dark or inconsistent
-   - Possible geometry issues
+1. **Player spawn position** - FIXED
+   - Implemented point-in-polygon algorithm to find spawn sector
+   - Player now spawns at correct sector floor height
+   - Proper collision boundaries set from sector data
 
-2. **Player spawns in wrong location** - Currently spawns on top of/above map
-   - Not using sector floor height (hardcoded to 56)
-   - Need to find which sector contains player start
-   - Should spawn at sector floor height, not arbitrary height
+2. **Rendering quality** - IMPROVED
+   - Fixed texture UV mapping with consistent tiling
+   - Improved lighting calculations (now uses /255 instead of /200)
+   - Better visibility in dark areas
 
 ### How to Run
 
@@ -85,27 +87,33 @@ See `CURRENT_ISSUES.md` for comprehensive breakdown of:
 Complete implementation plan at:
 `/Users/thomasmarshall/.claude/plans/ticklish-wobbling-crane.md`
 
-Current phase: **Phase 3.5** - Fix rendering and spawn issues
+**Completed Phases:**
+- ✅ Phase 0: Foundation & Data Pipeline
+- ✅ Phase 1: Static Geometry Rendering
+- ✅ Phase 2: Core Game Loop & Math
+- ✅ Phase 3: Player Movement & Physics
+- ✅ Phase 3.5: Fix rendering and spawn issues
+- ✅ Phase 4: BSP visibility culling
+
+**Current phase: Phase 5** - Sprite rendering (enemies, items)
 
 Next phases:
-- Phase 4: BSP visibility culling
-- Phase 5: Sprite rendering (enemies, items)
+- Phase 5: Sprite rendering (enemies, items, decorations)
 - Phase 6: AI and combat
 - Phase 7: Doors and sector effects
 - Phase 8: Audio
+- Phase 9: UI & HUD
+- Phase 10: Polish & Optimization
 
 ### Recent Commits
 
 ```
+9049bb0 - Implement Phase 4: BSP rendering and visibility culling
+fa45466 - Fix player spawn position and improve rendering quality
+482ab8c - Document current issues and create session handoff
 0f61a7f - Add missing doomAngleToThreeRadians function
 b2f2d70 - Fix camera rotation - looking around now works properly
 35eefd7 - Fix controls and add collision detection
-badc5b5 - Add quick start guide and update README
-0141c11 - Add shareware DOOM WAD file (Episode 1)
-db5334f - Phase 3: Player Movement & Physics (Basic)
-8d009bb - Phase 2: Core Game Loop & Math
-219cc12 - Phase 1: Static Geometry Rendering
-3988846 - Phase 0: Foundation & Data Pipeline
 ```
 
 ### Quick Wins for Next Session

@@ -4,9 +4,10 @@ A modern reimplementation of DOOM (1993) using three.js and TypeScript. This pro
 
 ## Project Status
 
-**Current Phase**: Phase 2 - Core Game Loop & Math ✅
+**Current Phase**: Phase 5 - Sprite Rendering
 
-### Completed
+### Completed Phases
+
 - ✅ **Phase 0**: Foundation & Data Pipeline
   - TypeScript + Vite + three.js project setup
   - Module structure (core, wad, level, graphics, renderer, etc.)
@@ -35,7 +36,7 @@ A modern reimplementation of DOOM (1993) using three.js and TypeScript. This pro
   - Input manager (keyboard, mouse)
   - TicCmd structure for input buffering
 
-- ✅ **Phase 3**: Player Movement & Physics (Basic)
+- ✅ **Phase 3**: Player Movement & Physics
   - Map object (mobj) structure with physics properties
   - Player movement with thrust-based physics
   - Friction and momentum application (FRICTION = 0xe800)
@@ -43,20 +44,26 @@ A modern reimplementation of DOOM (1993) using three.js and TypeScript. This pro
   - View height calculation with bobbing
   - First-person camera integration
   - Movement controls (WASD + mouse)
-  - Note: Collision detection deferred to Phase 3.5
+  - Wall collision detection with sliding
 
-### Current Issues 🔴
+- ✅ **Phase 3.5**: Rendering & Spawn Fixes
+  - Point-in-polygon algorithm for sector detection
+  - Player spawns at correct sector floor height
+  - Proper collision boundaries (floorz/ceilingz) from sector data
+  - Fixed texture UV mapping with consistent tiling
+  - Improved lighting calculations for better visibility
 
-**Known Problems**:
-1. Map rendering quality is poor (textures misaligned, too dark)
-2. Player spawns at wrong height (not using sector floor height)
-
-See `CURRENT_ISSUES.md` for detailed fixes needed.
+- ✅ **Phase 4**: BSP Rendering & Visibility
+  - BSP tree traversal from camera position
+  - Front-to-back node walking algorithm
+  - Visible subsector list generation
+  - Sector-based visibility culling
+  - Performance optimization with selective rendering
 
 ### Next Steps
-- **Phase 3.5**: Fix rendering quality and player spawn position
-- Phase 4: BSP Rendering & Visibility Optimization
-- Phase 5: Sprite rendering (enemies, items, decorations)
+- **Phase 5**: Sprite rendering (enemies, items, decorations)
+- Phase 6: AI and combat
+- Phase 7: Doors and sector effects
 
 ## Quick Start
 
