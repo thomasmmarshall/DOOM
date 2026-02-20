@@ -15,6 +15,7 @@ export class TextureManager {
   private flatCache: Map<string, THREE.CanvasTexture>;
   private textureComposer: TextureComposer;
   private initialized: boolean = false;
+  private flatNames: Set<string>;
 
   constructor(wad: WADReader, palette: Uint8ClampedArray) {
     this.wad = wad;
@@ -22,6 +23,7 @@ export class TextureManager {
     this.textureCache = new Map();
     this.flatCache = new Map();
     this.textureComposer = new TextureComposer(wad);
+    this.flatNames = new Set();
   }
 
   /**
@@ -30,9 +32,38 @@ export class TextureManager {
   async init(): Promise<void> {
     if (this.initialized) return;
 
+    // Initialize texture composer
     await this.textureComposer.init();
+
+    // Build flat directory from F_START to F_END markers
+    this.buildFlatDirectory();
+
     this.initialized = true;
     console.log('TextureManager initialized');
+    console.log(`Loaded ${this.flatNames.size} flats`);
+  }
+
+  /**
+   * Build directory of flat names from F_START to F_END
+   */
+  private buildFlatDirectory(): void {
+    const directory = this.wad.getDirectory();
+    let inFlats = false;
+
+    for (const lump of directory) {
+      if (lump.name === 'F_START' || lump.name === 'FF_START') {
+        inFlats = true;
+        continue;
+      }
+      if (lump.name === 'F_END' || lump.name === 'FF_END') {
+        inFlats = false;
+        continue;
+      }
+
+      if (inFlats && lump.size === 4096) { // Flats are always 4096 bytes
+        this.flatNames.add(lump.name.toUpperCase());
+      }
+    }
   }
 
   /**
@@ -136,32 +167,77 @@ export class TextureManager {
   getFlat(name: string): THREE.CanvasTexture | null {
     if (!name || name === '-') return null;
 
+    const upperName = name.toUpperCase();
+
     // Check cache
-    if (this.flatCache.has(name)) {
-      return this.flatCache.get(name)!;
+    if (this.flatCache.has(upperName)) {
+      return this.flatCache.get(upperName)!;
+    }
+
+    if (!this.initialized) {
+      console.warn('TextureManager not initialized! Call init() first.');
+      return null;
+    }
+
+    // Check if this flat exists in our directory
+    if (!this.flatNames.has(upperName)) {
+      console.warn(`Flat not in directory: ${name}`);
+      return this.createMissingFlat(upperName);
     }
 
     // Try to load flat
-    const flatData = this.wad.readLump(name);
-    if (flatData) {
-      try {
-        const canvas = FlatLoader.flatToCanvas(flatData, this.palette);
-        const texture = new THREE.CanvasTexture(canvas);
-        texture.magFilter = THREE.NearestFilter;
-        texture.minFilter = THREE.NearestFilter;
-        texture.wrapS = THREE.RepeatWrapping;
-        texture.wrapT = THREE.RepeatWrapping;
+    const flatData = this.wad.readLump(upperName);
+    if (!flatData) {
+      console.warn(`Flat not found in WAD: ${name}`);
+      return this.createMissingFlat(upperName);
+    }
 
-        this.flatCache.set(name, texture);
-        return texture;
-      } catch (error) {
-        console.warn(`Failed to decode flat ${name}:`, error);
-        return null;
+    try {
+      const canvas = FlatLoader.flatToCanvas(flatData, this.palette);
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.magFilter = THREE.NearestFilter;
+      texture.minFilter = THREE.NearestFilter;
+      texture.wrapS = THREE.RepeatWrapping;
+      texture.wrapT = THREE.RepeatWrapping;
+
+      this.flatCache.set(upperName, texture);
+      return texture;
+    } catch (error) {
+      console.warn(`Failed to decode flat ${name}:`, error);
+      return this.createMissingFlat(upperName);
+    }
+  }
+
+  /**
+   * Create a placeholder flat for missing flats
+   */
+  private createMissingFlat(name: string): THREE.CanvasTexture {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+
+    const ctx = canvas.getContext('2d')!;
+
+    // Create a checkerboard pattern
+    ctx.fillStyle = '#808080'; // Gray
+    ctx.fillRect(0, 0, 64, 64);
+    ctx.fillStyle = '#404040'; // Darker gray
+    for (let y = 0; y < 64; y += 8) {
+      for (let x = 0; x < 64; x += 8) {
+        if ((x + y) % 16 === 0) {
+          ctx.fillRect(x, y, 8, 8);
+        }
       }
     }
 
-    console.warn(`Flat not found: ${name}`);
-    return null;
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.magFilter = THREE.NearestFilter;
+    texture.minFilter = THREE.NearestFilter;
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+
+    this.flatCache.set(name, texture);
+    return texture;
   }
 
   /**

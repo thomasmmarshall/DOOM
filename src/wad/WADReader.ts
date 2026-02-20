@@ -157,6 +157,13 @@ export class WADReader {
   }
 
   /**
+   * Get complete lump directory
+   */
+  public getDirectory(): LumpInfo[] {
+    return this.lumpArray;
+  }
+
+  /**
    * Find map marker lump (E1M1, E1M2, MAP01, etc.)
    */
   public findMapLumps(): string[] {
