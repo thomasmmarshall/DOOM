@@ -35,8 +35,19 @@ A modern reimplementation of DOOM (1993) using three.js and TypeScript. This pro
   - Input manager (keyboard, mouse)
   - TicCmd structure for input buffering
 
+- ✅ **Phase 3**: Player Movement & Physics (Basic)
+  - Map object (mobj) structure with physics properties
+  - Player movement with thrust-based physics
+  - Friction and momentum application (FRICTION = 0xe800)
+  - Gravity implementation
+  - View height calculation with bobbing
+  - First-person camera integration
+  - Movement controls (WASD + mouse)
+  - Note: Collision detection deferred to Phase 3.5
+
 ### Next Steps
-- Phase 3: Player Movement & Physics (DOOM-accurate movement and collision)
+- Phase 3.5: Collision Detection (wall sliding, thing collision, blockmap)
+- Phase 4: BSP Rendering & Visibility Optimization
 
 ## Development
 

@@ -11,8 +11,10 @@ import { loadWAD } from './demo';
 import { MapParser } from './level';
 import { PaletteLoader } from './graphics';
 import { LevelRenderer } from './renderer';
-import { doomToThree, doomAngleToThree, initTables, GameTicker, TICRATE } from './core';
+import { doomToThree, doomAngleToThree, initTables, GameTicker, TICRATE, IntToFixed, FixedToFloat, DegreesToAngle } from './core';
 import { InputManager } from './input';
+import { createPlayerMobj, type Mobj } from './game';
+import { movePlayer, applyFriction, applyGravity, applyMomentum, calculateViewZ } from './physics';
 
 class DoomGame {
   private scene: THREE.Scene;
@@ -24,6 +26,8 @@ class DoomGame {
   private ticker?: GameTicker;
   private inputManager: InputManager;
   private tickCount: number = 0;
+  private playerMobj?: Mobj;
+  private useOrbitControls: boolean = true;
 
   constructor() {
     // Initialize trigonometry tables
@@ -119,21 +123,19 @@ class DoomGame {
       // Build level geometry
       this.levelRenderer.buildLevel();
 
-      // Position camera at player start
+      // Create player mobj at player start
       const playerStart = this.levelRenderer.getPlayerStart();
       if (playerStart) {
-        const cameraPos = doomToThree(playerStart.x, playerStart.y, playerStart.z);
-        this.camera.position.copy(cameraPos);
+        const x = IntToFixed(playerStart.x);
+        const y = IntToFixed(playerStart.y);
+        const z = IntToFixed(playerStart.z);
+        const angle = DegreesToAngle(playerStart.angle);
 
-        // Look in the direction of player start angle
-        const angle = doomAngleToThree(playerStart.angle);
-        const lookTarget = cameraPos.clone();
-        lookTarget.x += Math.cos(angle) * 100;
-        lookTarget.z += Math.sin(angle) * 100;
-        this.controls.target.copy(lookTarget);
-        this.controls.update();
+        this.playerMobj = createPlayerMobj(x, y, z, angle);
+        console.log(`Player created at (${playerStart.x}, ${playerStart.y}, ${playerStart.z}) angle ${playerStart.angle}°`);
 
-        console.log(`Camera positioned at player start: ${cameraPos.x}, ${cameraPos.y}, ${cameraPos.z}`);
+        // Position camera at player
+        this.updateCamera();
       } else {
         // Default camera position
         this.camera.position.set(0, 100, 0);
@@ -141,18 +143,25 @@ class DoomGame {
         this.controls.update();
       }
 
-      this.updateInfo(`${mapName} loaded! Use mouse to look around, scroll to zoom. Press P to start game ticker.`);
+      this.updateInfo(`${mapName} loaded! Press F to toggle first-person mode. WASD to move, mouse to look. Press P to start physics.`);
       console.log('Level rendering complete');
 
       // Set up ticker (but don't start it yet - user can press P to start)
       this.ticker = new GameTicker((tick) => this.gameTick(tick));
 
-      // Add key listener for starting ticker
+      // Add key listeners
       window.addEventListener('keydown', (e) => {
         if (e.code === 'KeyP' && this.ticker) {
           this.ticker.start();
           console.log('Game ticker started');
-          this.updateInfo(`${mapName} - Game ticker running at ${TICRATE} Hz`);
+          this.updateInfo(`${mapName} - Physics active. WASD to move, mouse to look.`);
+        } else if (e.code === 'KeyF') {
+          this.useOrbitControls = !this.useOrbitControls;
+          this.controls.enabled = this.useOrbitControls;
+          if (!this.useOrbitControls && this.playerMobj) {
+            this.inputManager.requestPointerLock();
+          }
+          console.log(`${this.useOrbitControls ? 'Orbit controls' : 'First-person mode'} enabled`);
         }
       });
     } catch (error) {
@@ -167,20 +176,70 @@ class DoomGame {
   private gameTick(tick: number): void {
     this.tickCount++;
 
+    if (!this.playerMobj) return;
+
     // Get input for this tick
     const cmd = this.inputManager.buildTicCmd();
 
-    // For now, just log every second
+    // Apply player movement
+    movePlayer(this.playerMobj, cmd);
+
+    // Apply friction
+    applyFriction(this.playerMobj);
+
+    // Apply gravity
+    applyGravity(this.playerMobj);
+
+    // Apply momentum (move the player)
+    applyMomentum(this.playerMobj);
+
+    // Log every second
     if (this.tickCount % TICRATE === 0) {
-      console.log(`Tick ${tick}: Running at ${TICRATE} Hz`);
+      const x = FixedToFloat(this.playerMobj.x);
+      const y = FixedToFloat(this.playerMobj.y);
+      const z = FixedToFloat(this.playerMobj.z);
+      console.log(`Tick ${tick}: Player at (${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)})`);
     }
 
-    // TODO: Process game logic here in Phase 3+
-    // - Player movement
+    // TODO: In later phases:
+    // - Collision detection with walls/things
     // - Enemy AI
-    // - Collision detection
     // - Weapon fire
-    // - etc.
+    // - Sector effects
+  }
+
+  /**
+   * Update camera to follow player
+   */
+  private updateCamera(): void {
+    if (!this.playerMobj) return;
+
+    // Calculate view position with bobbing
+    const viewZ = calculateViewZ(this.playerMobj);
+
+    // Convert to three.js coordinates
+    const pos = doomToThree(
+      FixedToFloat(this.playerMobj.x),
+      FixedToFloat(this.playerMobj.y),
+      FixedToFloat(viewZ)
+    );
+
+    if (this.useOrbitControls) {
+      // Orbit mode - position camera above and behind player
+      this.controls.target.copy(pos);
+      this.controls.update();
+    } else {
+      // First-person mode
+      this.camera.position.copy(pos);
+
+      // Look direction from player angle
+      const angle = doomAngleToThree(this.playerMobj.angle);
+      const lookTarget = pos.clone();
+      lookTarget.x += Math.cos(angle) * 100;
+      lookTarget.z += Math.sin(angle) * 100;
+
+      this.camera.lookAt(lookTarget);
+    }
   }
 
   public start(): void {
@@ -190,8 +249,15 @@ class DoomGame {
   private animate = (): void => {
     requestAnimationFrame(this.animate);
 
-    // Update controls
-    this.controls.update();
+    // Update controls (only if enabled)
+    if (this.useOrbitControls) {
+      this.controls.update();
+    }
+
+    // Update camera to follow player
+    if (!this.useOrbitControls && this.playerMobj) {
+      this.updateCamera();
+    }
 
     // Render scene
     this.renderer.render(this.scene, this.camera);
