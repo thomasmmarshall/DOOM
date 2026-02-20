@@ -49,11 +49,32 @@ A modern reimplementation of DOOM (1993) using three.js and TypeScript. This pro
 - Phase 3.5: Collision Detection (wall sliding, thing collision, blockmap)
 - Phase 4: BSP Rendering & Visibility Optimization
 
+## Quick Start
+
+**Already have the DOOM WAD included!** Just run:
+
+```bash
+npm install
+npm run dev
+```
+
+Then open your browser to http://localhost:5173
+
+See [QUICKSTART.md](QUICKSTART.md) for detailed controls and usage.
+
+## Controls
+
+- **F** - Toggle first-person mode
+- **P** - Start physics (enable movement)
+- **WASD** - Move (when physics active)
+- **Mouse** - Look around
+- **ESC** - Release mouse lock
+
 ## Development
 
 ### Prerequisites
 - Node.js 18+
-- A DOOM IWAD file (DOOM.WAD, DOOM1.WAD, or DOOM2.WAD)
+- Modern web browser
 
 ### Setup
 
@@ -61,15 +82,17 @@ A modern reimplementation of DOOM (1993) using three.js and TypeScript. This pro
 # Install dependencies
 npm install
 
-# Place your DOOM WAD file in the public directory
-cp /path/to/DOOM.WAD public/
-
 # Start development server
 npm run dev
 
 # Run tests
 npm test
 ```
+
+The shareware DOOM WAD is included in `public/DOOM.WAD`. You can replace it with:
+- Full DOOM.WAD (registered version)
+- DOOM2.WAD (DOOM II)
+- Any compatible DOOM WAD file
 
 ### Project Structure
 
