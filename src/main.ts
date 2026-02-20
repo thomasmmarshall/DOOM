@@ -13,7 +13,7 @@ import { PaletteLoader } from './graphics';
 import { LevelRenderer } from './renderer';
 import { doomToThree, doomAngleToThree, doomAngleToThreeRadians, initTables, GameTicker, TICRATE, IntToFixed, FixedToFloat, DegreesToAngle } from './core';
 import { InputManager } from './input';
-import { createPlayerMobj, type Mobj } from './game';
+import { createPlayerMobj, type Mobj, ThinkerManager } from './game';
 import { movePlayer, applyFriction, applyGravity, applyZMomentum, calculateViewZ, applyCollision } from './physics';
 import type { MapData } from './level';
 
@@ -30,10 +30,14 @@ class DoomGame {
   private playerMobj?: Mobj;
   private useOrbitControls: boolean = true;
   private mapData?: MapData;
+  private thinkerManager: ThinkerManager;
 
   constructor() {
     // Initialize trigonometry tables
     initTables();
+
+    // Initialize thinker manager
+    this.thinkerManager = new ThinkerManager();
 
     // Initialize input manager
     this.inputManager = new InputManager();
@@ -204,19 +208,17 @@ class DoomGame {
     // Apply Z momentum
     applyZMomentum(this.playerMobj);
 
+    // Run all thinkers (enemies, projectiles, etc.)
+    this.thinkerManager.runThinkers();
+
     // Log every second
     if (this.tickCount % TICRATE === 0) {
       const x = FixedToFloat(this.playerMobj.x);
       const y = FixedToFloat(this.playerMobj.y);
       const z = FixedToFloat(this.playerMobj.z);
-      console.log(`Tick ${tick}: Player at (${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)})`);
+      const thinkerCount = this.thinkerManager.getCount();
+      console.log(`Tick ${tick}: Player at (${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)}) | Thinkers: ${thinkerCount}`);
     }
-
-    // TODO: In later phases:
-    // - Thing collision
-    // - Enemy AI
-    // - Weapon fire
-    // - Sector effects
   }
 
   /**
