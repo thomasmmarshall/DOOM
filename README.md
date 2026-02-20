@@ -45,9 +45,18 @@ A modern reimplementation of DOOM (1993) using three.js and TypeScript. This pro
   - Movement controls (WASD + mouse)
   - Note: Collision detection deferred to Phase 3.5
 
+### Current Issues 🔴
+
+**Known Problems**:
+1. Map rendering quality is poor (textures misaligned, too dark)
+2. Player spawns at wrong height (not using sector floor height)
+
+See `CURRENT_ISSUES.md` for detailed fixes needed.
+
 ### Next Steps
-- Phase 3.5: Collision Detection (wall sliding, thing collision, blockmap)
+- **Phase 3.5**: Fix rendering quality and player spawn position
 - Phase 4: BSP Rendering & Visibility Optimization
+- Phase 5: Sprite rendering (enemies, items, decorations)
 
 ## Quick Start
 
