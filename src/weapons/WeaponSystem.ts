@@ -5,6 +5,7 @@
  */
 
 import type { Mobj } from '../game/mobj';
+import { MobjFlags } from '../game/mobj';
 import type { Fixed } from '../core';
 import { FixedToFloat, IntToFixed } from '../core/fixed';
 
@@ -172,12 +173,19 @@ export function switchWeapon(weapon: PlayerWeapon, newWeapon: WeaponType): void 
 /**
  * Perform hitscan attack
  * Instant-hit weapon like pistol, shotgun, chaingun
+ * @param source - Attacker (usually player)
+ * @param angle - Angle to fire in (radians)
+ * @param damage - Base damage
+ * @param spread - Angular spread in radians
+ * @param allMobjs - List of all map objects to check for hits
+ * @returns Hit result or null if nothing hit
  */
 export function performHitscan(
   source: Mobj,
   angle: number,
   damage: number,
-  spread: number = 0
+  spread: number = 0,
+  allMobjs: Mobj[] = []
 ): HitscanResult | null {
   // Calculate direction with spread
   const finalAngle = angle + (Math.random() - 0.5) * spread;
@@ -191,17 +199,70 @@ export function performHitscan(
   const dirX = Math.cos(finalAngle);
   const dirY = Math.sin(finalAngle);
 
-  const endX = startX + dirX * range;
-  const endY = startY + dirY * range;
+  // Find closest shootable target along the ray
+  let closestDist = range;
+  let closestTarget: Mobj | undefined;
 
-  // TODO: Raycast against enemies and walls
-  // For now, just return the ray info
+  for (const target of allMobjs) {
+    // Can't shoot self
+    if (target === source) continue;
 
+    // Skip non-shootable
+    if (!(target.flags & MobjFlags.SHOOTABLE)) continue;
+
+    // Skip dead things
+    if (target.health <= 0) continue;
+
+    // Get target position
+    const targetX = FixedToFloat(target.x);
+    const targetY = FixedToFloat(target.y);
+    const targetZ = FixedToFloat(target.z);
+    const targetHeight = FixedToFloat(target.height);
+
+    // Calculate distance to target
+    const dx = targetX - startX;
+    const dy = targetY - startY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist > closestDist) continue;
+
+    // Calculate angle to target
+    const targetAngle = Math.atan2(dy, dx);
+    const angleDiff = Math.abs(finalAngle - targetAngle);
+
+    // Check if target is in our firing cone (very narrow for hitscan)
+    const targetRadius = FixedToFloat(target.radius);
+    const angularSize = Math.atan2(targetRadius, dist);
+
+    if (angleDiff < angularSize * 2) {
+      // Check vertical alignment
+      if (startZ >= targetZ && startZ <= targetZ + targetHeight) {
+        closestDist = dist;
+        closestTarget = target;
+      }
+    }
+  }
+
+  if (closestTarget) {
+    return {
+      hit: true,
+      target: closestTarget,
+      distance: closestDist,
+      damage,
+      hitPoint: {
+        x: FixedToFloat(closestTarget.x),
+        y: FixedToFloat(closestTarget.y),
+        z: FixedToFloat(closestTarget.z),
+      },
+    };
+  }
+
+  // No hit - return ray endpoint
   return {
     hit: false,
     distance: range,
     damage,
-    hitPoint: { x: endX, y: endY, z: startZ },
+    hitPoint: { x: startX + dirX * range, y: startY + dirY * range, z: startZ },
   };
 }
 

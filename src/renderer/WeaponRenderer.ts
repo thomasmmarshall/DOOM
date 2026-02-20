@@ -257,8 +257,8 @@ export class WeaponRenderer {
    * Clear sprite cache
    */
   clearCache(): void {
-    for (const texture of this.spriteCache.values()) {
-      texture.dispose();
+    for (const sprite of this.spriteCache.values()) {
+      sprite.texture.dispose();
     }
     this.spriteCache.clear();
   }

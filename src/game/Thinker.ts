@@ -124,4 +124,19 @@ export class ThinkerManager {
 
     return thinkers;
   }
+
+  /**
+   * Get all mobjs from thinkers
+   */
+  getAllMobjs(): Mobj[] {
+    const mobjs: Mobj[] = [];
+    let current = this.head;
+
+    while (current) {
+      mobjs.push(current.mobj);
+      current = current.next;
+    }
+
+    return mobjs;
+  }
 }

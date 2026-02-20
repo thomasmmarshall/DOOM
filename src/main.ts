@@ -18,7 +18,8 @@ import { movePlayer, applyFriction, applyGravity, applyZMomentum, calculateViewZ
 import type { MapData } from './level';
 import { DoorManager, PlatformManager } from './sectors';
 import { StatusBar, type PlayerStats } from './ui';
-import { createPlayerWeapon, updateWeapon, fireWeapon, switchWeapon, WeaponType } from './weapons/WeaponSystem';
+import { createPlayerWeapon, updateWeapon, fireWeapon, switchWeapon, WeaponType, performHitscan, WEAPON_INFO } from './weapons/WeaponSystem';
+import { damageActor, WeaponDamage } from './game/Damage';
 
 class DoomGame {
   private scene: THREE.Scene;
@@ -360,11 +361,97 @@ class DoomGame {
   private firePlayerWeapon(): void {
     if (!this.playerMobj?.player?.weapon) return;
 
-    const success = fireWeapon(this.playerMobj.player.weapon, this.playerMobj);
+    const weapon = this.playerMobj.player.weapon;
+    const success = fireWeapon(weapon, this.playerMobj);
+
     if (success) {
-      // Consume ammo
-      if (this.playerMobj.player.ammo) {
-        this.playerMobj.player.ammo.bullets = Math.max(0, this.playerMobj.player.ammo.bullets - 1);
+      // Get all mobjs from thinker manager
+      const allMobjs = this.thinkerManager.getAllMobjs();
+
+      // Perform hitscan for applicable weapons
+      const weaponInfo = WEAPON_INFO.get(weapon.currentWeapon);
+      if (!weaponInfo) return;
+
+      // Calculate firing angle (convert from DOOM angle to radians)
+      const fireAngle = doomAngleToThreeRadians(this.playerMobj.angle);
+
+      // Perform hitscan based on weapon type
+      if (weapon.currentWeapon === WeaponType.PISTOL) {
+        const damage = WeaponDamage.PISTOL();
+        const result = performHitscan(this.playerMobj, fireAngle, damage, 0, allMobjs);
+
+        if (result?.hit && result.target) {
+          damageActor(result.target, result.damage, this.playerMobj);
+          console.log(`Pistol hit for ${result.damage} damage!`);
+        }
+
+        // Consume ammo
+        if (this.playerMobj.player.ammo) {
+          this.playerMobj.player.ammo.bullets = Math.max(0, this.playerMobj.player.ammo.bullets - 1);
+        }
+      } else if (weapon.currentWeapon === WeaponType.SHOTGUN) {
+        // Shotgun fires 7 pellets
+        let hits = 0;
+        for (let i = 0; i < 7; i++) {
+          const damage = WeaponDamage.SHOTGUN_PELLET();
+          const spread = 0.1; // Some spread for shotgun
+          const result = performHitscan(this.playerMobj, fireAngle, damage, spread, allMobjs);
+
+          if (result?.hit && result.target) {
+            damageActor(result.target, result.damage, this.playerMobj);
+            hits++;
+          }
+        }
+
+        if (hits > 0) {
+          console.log(`Shotgun hit with ${hits}/7 pellets!`);
+        }
+
+        // Consume ammo
+        if (this.playerMobj.player.ammo) {
+          this.playerMobj.player.ammo.shells = Math.max(0, (this.playerMobj.player.ammo.shells || 0) - 1);
+        }
+      } else if (weapon.currentWeapon === WeaponType.CHAINGUN) {
+        const damage = WeaponDamage.CHAINGUN();
+        const result = performHitscan(this.playerMobj, fireAngle, damage, 0.02, allMobjs);
+
+        if (result?.hit && result.target) {
+          damageActor(result.target, result.damage, this.playerMobj);
+          console.log(`Chaingun hit for ${result.damage} damage!`);
+        }
+
+        // Consume ammo
+        if (this.playerMobj.player.ammo) {
+          this.playerMobj.player.ammo.bullets = Math.max(0, this.playerMobj.player.ammo.bullets - 1);
+        }
+      } else if (weapon.currentWeapon === WeaponType.FIST) {
+        // Melee attack - check close range
+        const meleeRange = 64; // DOOM's melee range
+        const damage = WeaponDamage.FIST();
+
+        // Find closest enemy in melee range
+        let closestDist = meleeRange;
+        let closestTarget: typeof allMobjs[0] | undefined;
+
+        for (const target of allMobjs) {
+          if (target === this.playerMobj) continue;
+          if (!(target.flags & 0x4)) continue; // MobjFlags.SHOOTABLE
+          if (target.health <= 0) continue;
+
+          const dx = FixedToFloat(target.x - this.playerMobj.x);
+          const dy = FixedToFloat(target.y - this.playerMobj.y);
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          if (dist < closestDist) {
+            closestDist = dist;
+            closestTarget = target;
+          }
+        }
+
+        if (closestTarget) {
+          damageActor(closestTarget, damage, this.playerMobj);
+          console.log(`Fist hit for ${damage} damage!`);
+        }
       }
     }
   }
