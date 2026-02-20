@@ -19,6 +19,17 @@ interface WeaponFrame {
 }
 
 /**
+ * Cached weapon sprite with offset info
+ */
+interface CachedWeaponSprite {
+  texture: THREE.CanvasTexture;
+  width: number;
+  height: number;
+  leftoffset: number;
+  topoffset: number;
+}
+
+/**
  * Weapon animation sequences
  */
 const WEAPON_FRAMES: Map<WeaponType, WeaponFrame[]> = new Map([
@@ -48,7 +59,7 @@ export class WeaponRenderer {
   private wad: WADReader;
   private palette: Uint8ClampedArray;
   private weaponMesh?: THREE.Mesh;
-  private spriteCache: Map<string, THREE.CanvasTexture>;
+  private spriteCache: Map<string, CachedWeaponSprite>;
   private currentFrame: number = 0;
   private animationTimer: number = 0;
   private bobOffset: number = 0;
@@ -74,7 +85,7 @@ export class WeaponRenderer {
   /**
    * Load a weapon sprite from WAD
    */
-  private loadWeaponSprite(spriteName: string, frame: string): THREE.CanvasTexture | null {
+  private loadWeaponSprite(spriteName: string, frame: string): CachedWeaponSprite | null {
     const fullName = `${spriteName}${frame}0`; // e.g., "PISGA0"
 
     // Check cache
@@ -105,10 +116,19 @@ export class WeaponRenderer {
       const texture = new THREE.CanvasTexture(canvas);
       texture.magFilter = THREE.NearestFilter;
       texture.minFilter = THREE.NearestFilter;
+      texture.flipY = false; // Don't flip Y - DOOM patches are already correct orientation
       texture.needsUpdate = true;
 
-      this.spriteCache.set(fullName, texture);
-      return texture;
+      const cached: CachedWeaponSprite = {
+        texture,
+        width: decoded.width,
+        height: decoded.height,
+        leftoffset: decoded.leftoffset,
+        topoffset: decoded.topoffset,
+      };
+
+      this.spriteCache.set(fullName, cached);
+      return cached;
     } catch (error) {
       console.error(`Failed to load weapon sprite ${fullName}:`, error);
       return null;
@@ -157,9 +177,9 @@ export class WeaponRenderer {
 
     // Load sprite for current frame
     const frame = frames[frameIndex];
-    const texture = this.loadWeaponSprite(frame.spriteName, frame.frame);
+    const sprite = this.loadWeaponSprite(frame.spriteName, frame.frame);
 
-    if (!texture) return;
+    if (!sprite) return;
 
     // Update bob offset
     this.bobOffset = playerBob;
@@ -168,7 +188,7 @@ export class WeaponRenderer {
     if (!this.weaponMesh) {
       const geometry = new THREE.PlaneGeometry(1, 1);
       const material = new THREE.MeshBasicMaterial({
-        map: texture,
+        map: sprite.texture,
         transparent: true,
         alphaTest: 0.1,
         side: THREE.DoubleSide,
@@ -179,25 +199,30 @@ export class WeaponRenderer {
     } else {
       // Update texture
       const material = this.weaponMesh.material as THREE.MeshBasicMaterial;
-      material.map = texture;
+      material.map = sprite.texture;
       material.needsUpdate = true;
     }
 
-    // Position weapon at bottom center of screen
-    // DOOM positions weapons at approximately (160, 170) with some offset for bobbing
-    const canvas = (texture.image as HTMLCanvasElement);
-    const width = canvas.width;
-    const height = canvas.height;
+    // Position weapon using DOOM's weapon positioning
+    // DOOM weapon position: (160, 32) at the bottom center-ish
+    // The offsets from the patch determine where the "anchor point" is
 
-    // Scale to fit nicely in screen (weapons are roughly 1/3 of screen height)
-    const scale = 0.8;
-    this.weaponMesh.scale.set(width * scale, height * scale, 1);
+    // Scale the weapon (DOOM resolution is 320x200, weapons typically show at 1:1 scale)
+    this.weaponMesh.scale.set(sprite.width, sprite.height, 1);
 
-    // Position at bottom center
-    // X: centered (160 is center of 320-wide screen)
-    // Y: bottom of screen, with weapon extending up
-    const xPos = 160;
-    const yPos = 170 + this.bobOffset; // Near bottom, plus bob offset
+    // Position weapon at bottom center
+    // X: center of screen (160) - leftoffset gives us the sprite's center point
+    // Y: DOOM weapon Y position is typically 32 units from bottom (200 - 32 = 168)
+    // The topoffset tells us where the sprite's anchor is vertically
+
+    const weaponX = 160; // Center of 320-wide screen
+    const weaponY = 32;  // Distance from bottom of 200-tall screen (DOOM standard)
+
+    // Apply offsets - these position the sprite so its anchor point is at weaponX, weaponY
+    // leftoffset: how far from left edge of sprite to the anchor point
+    // topoffset: how far from top edge of sprite to the anchor point
+    const xPos = weaponX - sprite.leftoffset + (sprite.width / 2);
+    const yPos = weaponY - sprite.topoffset + (sprite.height / 2) + this.bobOffset;
 
     this.weaponMesh.position.set(xPos, yPos, 0);
   }

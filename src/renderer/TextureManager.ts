@@ -291,16 +291,34 @@ export class TextureManager {
       if (ctx) {
         const imageData = ctx.getImageData(0, 0, Math.min(64, canvas.width), Math.min(64, canvas.height));
         let hasColor = false;
+        let nonTransparentPixels = 0;
+        let totalBrightness = 0;
+
         for (let i = 0; i < imageData.data.length; i += 4) {
+          const r = imageData.data[i];
+          const g = imageData.data[i + 1];
+          const b = imageData.data[i + 2];
+          const a = imageData.data[i + 3];
+
+          // Skip fully transparent pixels
+          if (a === 0) continue;
+
+          nonTransparentPixels++;
+          totalBrightness += r + g + b;
+
           // Check if any pixel has RGB values > 10 (to account for very dark but not pure black)
-          if (imageData.data[i] > 10 || imageData.data[i + 1] > 10 || imageData.data[i + 2] > 10) {
+          if (r > 10 || g > 10 || b > 10) {
             hasColor = true;
-            break;
           }
         }
-        if (!hasColor) {
-          console.warn(`Flat "${flatName}" is all black - replacing with placeholder`);
+
+        const avgBrightness = nonTransparentPixels > 0 ? totalBrightness / (nonTransparentPixels * 3) : 0;
+
+        if (!hasColor && nonTransparentPixels > 100) {
+          console.warn(`Flat "${flatName}" is all black (avg brightness: ${avgBrightness.toFixed(1)}) - replacing with placeholder`);
           texture = this.createMissingFlat(flatName + '_BLACK');
+        } else if (avgBrightness < 5 && nonTransparentPixels > 100) {
+          console.warn(`Flat "${flatName}" is very dark (avg brightness: ${avgBrightness.toFixed(1)}) but allowing it`);
         }
       }
     }
