@@ -5,17 +5,20 @@
 ### What's Working ✅
 - WAD file parsing (DOOM shareware included in `public/DOOM.WAD`)
 - Map data parsing (E1M1 loads successfully)
-- Static level geometry rendering (walls, floors, ceilings, sky)
-- Texture system (patches and flats decode and render)
+- Full level geometry rendering (walls, floors, ceilings, sky)
+- Complete texture system (TEXTURE1/TEXTURE2 composite textures)
+- Flat texture loading (F_START/F_END markers)
 - 35 Hz game ticker (deterministic physics)
 - Fixed-point math library
 - Player movement with WASD controls
 - Mouse look (smooth rotation)
 - Wall collision detection with sliding
+- Stair climbing (24-unit step height)
+- Floor/ceiling height tracking
 - First-person camera
 - Player spawns at correct sector floor height
-- Improved texture rendering and lighting
-- BSP tree visibility culling (Phase 4)
+- BSP tree visibility culling
+- Sprite rendering (items, monsters, decorations)
 
 ### Recent Fixes ✅
 
@@ -94,8 +97,10 @@ Complete implementation plan at:
 - ✅ Phase 3: Player Movement & Physics
 - ✅ Phase 3.5: Fix rendering and spawn issues
 - ✅ Phase 4: BSP visibility culling
+- ✅ Phase 5: Sprite rendering
+- ✅ Critical Fixes: Texture system, floor loading, collision
 
-**Current phase: Phase 5** - Sprite rendering (enemies, items)
+**Current phase: Phase 6** - AI and Combat
 
 Next phases:
 - Phase 5: Sprite rendering (enemies, items, decorations)
