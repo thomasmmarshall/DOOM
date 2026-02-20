@@ -34,8 +34,10 @@ export function applyThrust(mobj: Mobj, angle: Angle, move: Fixed): void {
  * Based on P_MovePlayer from p_user.c
  */
 export function movePlayer(mobj: Mobj, cmd: TicCmd): void {
-  // Update angle
-  mobj.angle += cmd.angleturn << 16;
+  // Update angle (angleturn is in BAM units already, don't shift)
+  // DOOM shifts by 16 because ticcmd stores a smaller value
+  // We're passing larger values, so reduce the shift
+  mobj.angle = (mobj.angle + (cmd.angleturn << 16)) >>> 0; // Keep as unsigned 32-bit
 
   // Check if on ground
   const onground = mobj.z <= mobj.floorz;

@@ -90,14 +90,16 @@ export class InputManager {
 
     // Turn left/right (keyboard)
     if (this.keys.has('ArrowLeft')) {
-      cmd.angleturn = 320; // Turn left
+      cmd.angleturn = 40; // Turn left (in BAM units before shift)
     } else if (this.keys.has('ArrowRight')) {
-      cmd.angleturn = -320; // Turn right
+      cmd.angleturn = -40; // Turn right
     }
 
-    // Mouse turning (much lower sensitivity, smooth accumulation)
+    // Mouse turning (very low sensitivity for smooth control)
     if (this.mouseLocked && this.mouseX !== 0) {
-      cmd.angleturn += Math.floor(this.mouseX * 5); // Reduced from 100 to 5
+      // Mouse movement directly affects turn speed
+      // Negative because mouse right = positive X but we want to turn right (negative angle)
+      cmd.angleturn -= Math.floor(this.mouseX * 2); // Much smaller multiplier
       this.mouseX = 0; // Reset for next frame
     }
 

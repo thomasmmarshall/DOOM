@@ -11,7 +11,7 @@ import { loadWAD } from './demo';
 import { MapParser } from './level';
 import { PaletteLoader } from './graphics';
 import { LevelRenderer } from './renderer';
-import { doomToThree, doomAngleToThree, initTables, GameTicker, TICRATE, IntToFixed, FixedToFloat, DegreesToAngle } from './core';
+import { doomToThree, doomAngleToThree, doomAngleToThreeRadians, initTables, GameTicker, TICRATE, IntToFixed, FixedToFloat, DegreesToAngle } from './core';
 import { InputManager } from './input';
 import { createPlayerMobj, type Mobj } from './game';
 import { movePlayer, applyFriction, applyGravity, applyZMomentum, calculateViewZ, applyCollision } from './physics';
@@ -237,11 +237,16 @@ class DoomGame {
       // First-person mode
       this.camera.position.copy(pos);
 
-      // Look direction from player angle
-      const angle = doomAngleToThree(this.playerMobj.angle);
+      // Look direction from player angle (BAM to radians)
+      // DOOM coordinates: angle 0 = East, 90° = North
+      // three.js: We need to point the camera direction
+      const angleRad = doomAngleToThreeRadians(this.playerMobj.angle);
+
+      // Calculate look target
+      // In DOOM/three.js conversion: X stays X, Y becomes -Z
       const lookTarget = pos.clone();
-      lookTarget.x += Math.cos(angle) * 100;
-      lookTarget.z += Math.sin(angle) * 100;
+      lookTarget.x += Math.cos(angleRad) * 100;
+      lookTarget.z -= Math.sin(angleRad) * 100; // Note: subtract because of coordinate flip
 
       this.camera.lookAt(lookTarget);
     }
