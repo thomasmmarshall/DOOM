@@ -14,7 +14,8 @@ import { LevelRenderer } from './renderer';
 import { doomToThree, doomAngleToThree, initTables, GameTicker, TICRATE, IntToFixed, FixedToFloat, DegreesToAngle } from './core';
 import { InputManager } from './input';
 import { createPlayerMobj, type Mobj } from './game';
-import { movePlayer, applyFriction, applyGravity, applyMomentum, calculateViewZ } from './physics';
+import { movePlayer, applyFriction, applyGravity, applyZMomentum, calculateViewZ, applyCollision } from './physics';
+import type { MapData } from './level';
 
 class DoomGame {
   private scene: THREE.Scene;
@@ -28,6 +29,7 @@ class DoomGame {
   private tickCount: number = 0;
   private playerMobj?: Mobj;
   private useOrbitControls: boolean = true;
+  private mapData?: MapData;
 
   constructor() {
     // Initialize trigonometry tables
@@ -110,12 +112,12 @@ class DoomGame {
         throw new Error(`Map ${mapName} not found`);
       }
 
-      const mapData = MapParser.parseMap(mapName, mapLumps, wad);
+      this.mapData = MapParser.parseMap(mapName, mapLumps, wad);
       console.log(`Parsed ${mapName}`);
 
       // Create level renderer
       this.updateInfo(`Building ${mapName} geometry...`);
-      this.levelRenderer = new LevelRenderer(this.scene, wad, rgbaPalette, mapData);
+      this.levelRenderer = new LevelRenderer(this.scene, wad, rgbaPalette, this.mapData);
 
       // Add sky
       this.levelRenderer.addSky(wad, rgbaPalette);
@@ -176,7 +178,7 @@ class DoomGame {
   private gameTick(tick: number): void {
     this.tickCount++;
 
-    if (!this.playerMobj) return;
+    if (!this.playerMobj || !this.mapData) return;
 
     // Get input for this tick
     const cmd = this.inputManager.buildTicCmd();
@@ -190,8 +192,11 @@ class DoomGame {
     // Apply gravity
     applyGravity(this.playerMobj);
 
-    // Apply momentum (move the player)
-    applyMomentum(this.playerMobj);
+    // Apply XY momentum with collision detection
+    applyCollision(this.playerMobj, this.mapData);
+
+    // Apply Z momentum
+    applyZMomentum(this.playerMobj);
 
     // Log every second
     if (this.tickCount % TICRATE === 0) {
@@ -202,7 +207,7 @@ class DoomGame {
     }
 
     // TODO: In later phases:
-    // - Collision detection with walls/things
+    // - Thing collision
     // - Enemy AI
     // - Weapon fire
     // - Sector effects

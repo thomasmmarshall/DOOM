@@ -96,13 +96,15 @@ export class TextureManager {
     const texture = this.getTexture(textureName);
 
     // Convert DOOM light level (0-255) to brightness multiplier
-    const brightness = lightLevel / 255;
+    // Clamp to reasonable range and boost visibility
+    const brightness = Math.max(0.3, Math.min(1.0, lightLevel / 200));
 
     const material = new THREE.MeshBasicMaterial({
       map: texture,
       color: new THREE.Color(brightness, brightness, brightness),
       transparent: transparent,
-      side: THREE.FrontSide,
+      side: THREE.DoubleSide, // Render both sides for better visibility
+      depthWrite: !transparent,
     });
 
     return material;
@@ -115,12 +117,12 @@ export class TextureManager {
     const texture = this.getFlat(flatName);
 
     // Convert DOOM light level (0-255) to brightness multiplier
-    const brightness = lightLevel / 255;
+    const brightness = Math.max(0.3, Math.min(1.0, lightLevel / 200));
 
     const material = new THREE.MeshBasicMaterial({
       map: texture,
       color: new THREE.Color(brightness, brightness, brightness),
-      side: THREE.FrontSide,
+      side: THREE.DoubleSide, // Render both sides
     });
 
     return material;

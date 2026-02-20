@@ -99,18 +99,14 @@ export function applyGravity(mobj: Mobj): void {
 }
 
 /**
- * Move mobj by its momentum (simplified - no collision for now)
- * Based on P_XYMovement and P_ZMovement from p_mobj.c
+ * Apply Z momentum (vertical movement)
+ * Based on P_ZMovement from p_mobj.c
  */
-export function applyMomentum(mobj: Mobj): void {
-  // Apply X/Y movement
-  mobj.x += mobj.momx;
-  mobj.y += mobj.momy;
-
+export function applyZMomentum(mobj: Mobj): void {
   // Apply Z movement
   mobj.z += mobj.momz;
 
-  // Clamp to floor/ceiling (temporary until we have proper collision)
+  // Clamp to floor/ceiling
   if (mobj.z < mobj.floorz) {
     mobj.z = mobj.floorz;
     mobj.momz = 0;

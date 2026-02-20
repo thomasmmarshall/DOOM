@@ -74,30 +74,30 @@ export class InputManager {
       buttons: 0,
     };
 
-    // Forward/backward movement
+    // Forward/backward movement (use larger values for noticeable movement)
     if (this.keys.has('KeyW') || this.keys.has('ArrowUp')) {
-      cmd.forwardmove = 1;
+      cmd.forwardmove = 25; // Run forward
     } else if (this.keys.has('KeyS') || this.keys.has('ArrowDown')) {
-      cmd.forwardmove = -1;
+      cmd.forwardmove = -25; // Run backward
     }
 
     // Strafe movement
     if (this.keys.has('KeyA')) {
-      cmd.sidemove = -1;
+      cmd.sidemove = -20; // Strafe left
     } else if (this.keys.has('KeyD')) {
-      cmd.sidemove = 1;
+      cmd.sidemove = 20; // Strafe right
     }
 
     // Turn left/right (keyboard)
     if (this.keys.has('ArrowLeft')) {
-      cmd.angleturn = 640; // Turn speed
+      cmd.angleturn = 320; // Turn left
     } else if (this.keys.has('ArrowRight')) {
-      cmd.angleturn = -640;
+      cmd.angleturn = -320; // Turn right
     }
 
-    // Mouse turning
-    if (this.mouseLocked) {
-      cmd.angleturn += this.mouseX * 100; // Mouse sensitivity
+    // Mouse turning (much lower sensitivity, smooth accumulation)
+    if (this.mouseLocked && this.mouseX !== 0) {
+      cmd.angleturn += Math.floor(this.mouseX * 5); // Reduced from 100 to 5
       this.mouseX = 0; // Reset for next frame
     }
 
