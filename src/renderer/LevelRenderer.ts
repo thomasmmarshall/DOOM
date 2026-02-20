@@ -89,9 +89,58 @@ export class LevelRenderer {
   }
 
   /**
+   * Find which sector contains a given point (x, y)
+   * Uses a simple approach: check all linedefs and build sector boundaries
+   */
+  private findSectorAtPoint(x: number, y: number): number | null {
+    // Try each sector to see if point is inside
+    for (let sectorIdx = 0; sectorIdx < this.mapData.sectors.length; sectorIdx++) {
+      // Find all linedefs that reference this sector
+      const sectorLines: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
+
+      for (let i = 0; i < this.mapData.linedefs.length; i++) {
+        const linedef = this.mapData.linedefs[i];
+        const frontSide = linedef.sidenum[0];
+        const backSide = linedef.sidenum[1];
+
+        // Check if this linedef's front or back side references our sector
+        if (frontSide !== -1 && this.mapData.sidedefs[frontSide].sector === sectorIdx) {
+          const v1 = this.mapData.vertexes[linedef.v1];
+          const v2 = this.mapData.vertexes[linedef.v2];
+          sectorLines.push({ x1: v1.x, y1: v1.y, x2: v2.x, y2: v2.y });
+        } else if (backSide !== -1 && this.mapData.sidedefs[backSide].sector === sectorIdx) {
+          const v1 = this.mapData.vertexes[linedef.v1];
+          const v2 = this.mapData.vertexes[linedef.v2];
+          sectorLines.push({ x1: v1.x, y1: v1.y, x2: v2.x, y2: v2.y });
+        }
+      }
+
+      // Point-in-polygon test using ray casting algorithm
+      if (sectorLines.length > 0) {
+        let inside = false;
+        for (const line of sectorLines) {
+          // Ray casting: count intersections with a ray going right from point
+          if ((line.y1 > y) !== (line.y2 > y)) {
+            const intersectX = (line.x2 - line.x1) * (y - line.y1) / (line.y2 - line.y1) + line.x1;
+            if (x < intersectX) {
+              inside = !inside;
+            }
+          }
+        }
+
+        if (inside) {
+          return sectorIdx;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /**
    * Find player start position
    */
-  getPlayerStart(): { x: number; y: number; z: number; angle: number } | null {
+  getPlayerStart(): { x: number; y: number; z: number; angle: number; floorz: number; ceilingz: number } | null {
     // Player 1 start is thing type 1
     const playerThing = this.mapData.things.find(thing => thing.type === 1);
 
@@ -101,14 +150,28 @@ export class LevelRenderer {
     }
 
     // Find the sector the player is in to get floor height
-    // For now, use a default height
-    const defaultHeight = 56; // DOOM player view height
+    const sectorIdx = this.findSectorAtPoint(playerThing.x, playerThing.y);
 
+    let floorHeight = 0; // Default floor height
+    let ceilingHeight = 128; // Default ceiling height
+    if (sectorIdx !== null) {
+      const sector = this.mapData.sectors[sectorIdx];
+      floorHeight = sector.floorheight;
+      ceilingHeight = sector.ceilingheight;
+      console.log(`Player start found in sector ${sectorIdx}, floor height: ${floorHeight}, ceiling height: ${ceilingHeight}`);
+    } else {
+      console.warn(`Could not determine sector for player start at (${playerThing.x}, ${playerThing.y}), using defaults`);
+    }
+
+    // Player spawns at floor height
+    // The z coordinate returned is the floor position
     return {
       x: playerThing.x,
       y: playerThing.y,
-      z: defaultHeight,
+      z: floorHeight,
       angle: playerThing.angle,
+      floorz: floorHeight,
+      ceilingz: ceilingHeight,
     };
   }
 

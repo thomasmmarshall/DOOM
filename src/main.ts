@@ -134,7 +134,13 @@ class DoomGame {
         const angle = DegreesToAngle(playerStart.angle);
 
         this.playerMobj = createPlayerMobj(x, y, z, angle);
+
+        // Set proper floor and ceiling heights from sector
+        this.playerMobj.floorz = IntToFixed(playerStart.floorz);
+        this.playerMobj.ceilingz = IntToFixed(playerStart.ceilingz);
+
         console.log(`Player created at (${playerStart.x}, ${playerStart.y}, ${playerStart.z}) angle ${playerStart.angle}°`);
+        console.log(`Floor: ${playerStart.floorz}, Ceiling: ${playerStart.ceilingz}`);
 
         // Position camera at player
         this.updateCamera();

@@ -156,12 +156,14 @@ export class WallBuilder {
     const height = topZ - bottomZ;
 
     // UV coordinates
-    // DOOM textures are measured in pixels
-    // We'll normalize these later when we know texture size
-    const u1 = textureOffsetX / 64; // Assume 64 as default for now
+    // In DOOM, 1 unit = 1 pixel, so we normalize by dividing by texture repeat size
+    // Using 64 as base tiling unit for both U and V (textures will repeat naturally)
+    const u1 = textureOffsetX / 64;
     const u2 = (textureOffsetX + width) / 64;
-    const v1 = unpeg ? 0 : textureOffsetY / 128;
-    const v2 = unpeg ? height / 128 : (textureOffsetY + height) / 128;
+
+    // V coordinates: for unpeg, align to bottom, otherwise align to top
+    const v1 = textureOffsetY / 64;
+    const v2 = (textureOffsetY + height) / 64;
 
     const uvs = new Float32Array([
       // Triangle 1
