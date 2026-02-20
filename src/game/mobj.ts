@@ -79,14 +79,23 @@ export interface Mobj {
 }
 
 /**
- * Player state (simplified for Phase 3)
+ * Player state
  */
 export interface PlayerState {
   viewheight: Fixed; // Current view height
   deltaviewheight: Fixed; // View height bobbing
   bob: Fixed; // Movement bobbing
 
-  // Weapons, ammo, etc. - TODO in later phases
+  // Weapon state
+  weapon?: any; // PlayerWeapon from weapons module
+
+  // Ammo
+  ammo?: {
+    bullets: number;
+    shells: number;
+    rockets: number;
+    cells: number;
+  };
 }
 
 /**
