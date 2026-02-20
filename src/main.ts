@@ -13,9 +13,10 @@ import { PaletteLoader } from './graphics';
 import { LevelRenderer } from './renderer';
 import { doomToThree, doomAngleToThree, doomAngleToThreeRadians, initTables, GameTicker, TICRATE, IntToFixed, FixedToFloat, DegreesToAngle } from './core';
 import { InputManager } from './input';
-import { createPlayerMobj, type Mobj, ThinkerManager } from './game';
+import { createPlayerMobj, type Mobj, ThinkerManager, TriggerSystem } from './game';
 import { movePlayer, applyFriction, applyGravity, applyZMomentum, calculateViewZ, applyCollision } from './physics';
 import type { MapData } from './level';
+import { DoorManager, PlatformManager } from './sectors';
 
 class DoomGame {
   private scene: THREE.Scene;
@@ -31,6 +32,9 @@ class DoomGame {
   private useOrbitControls: boolean = true;
   private mapData?: MapData;
   private thinkerManager: ThinkerManager;
+  private doorManager?: DoorManager;
+  private platformManager?: PlatformManager;
+  private triggerSystem?: TriggerSystem;
 
   constructor() {
     // Initialize trigonometry tables
@@ -119,9 +123,22 @@ class DoomGame {
       this.mapData = MapParser.parseMap(mapName, mapLumps, wad);
       console.log(`Parsed ${mapName}`);
 
-      // Create level renderer
+      // Create level renderer (need this first for callbacks)
       this.updateInfo(`Building ${mapName} geometry...`);
       this.levelRenderer = new LevelRenderer(this.scene, wad, rgbaPalette, this.mapData);
+
+      // Initialize sector managers with renderer callbacks
+      this.doorManager = new DoorManager(
+        this.mapData,
+        (sectorIndex, newHeight) => this.levelRenderer?.updateSectorCeiling(sectorIndex, newHeight)
+      );
+      this.platformManager = new PlatformManager(
+        this.mapData,
+        (sectorIndex, newHeight) => this.levelRenderer?.updateSectorFloor(sectorIndex, newHeight)
+      );
+      this.triggerSystem = new TriggerSystem(this.mapData, this.doorManager, this.platformManager);
+
+      // Continue with level building
 
       // Add sky
       this.levelRenderer.addSky(wad, rgbaPalette);
@@ -166,7 +183,7 @@ class DoomGame {
         if (e.code === 'KeyP' && this.ticker) {
           this.ticker.start();
           console.log('Game ticker started');
-          this.updateInfo(`${mapName} - Physics active. WASD to move, mouse to look.`);
+          this.updateInfo(`${mapName} - Physics active. WASD to move, mouse to look, SPACE to use.`);
         } else if (e.code === 'KeyF') {
           this.useOrbitControls = !this.useOrbitControls;
           this.controls.enabled = this.useOrbitControls;
@@ -174,6 +191,9 @@ class DoomGame {
             this.inputManager.requestPointerLock();
           }
           console.log(`${this.useOrbitControls ? 'Orbit controls' : 'First-person mode'} enabled`);
+        } else if (e.code === 'Space' && this.playerMobj && this.triggerSystem) {
+          // Use action - find nearest usable line
+          this.tryUseAction();
         }
       });
     } catch (error) {
@@ -189,6 +209,10 @@ class DoomGame {
     this.tickCount++;
 
     if (!this.playerMobj || !this.mapData) return;
+
+    // Save old position for walk trigger detection
+    const oldX = FixedToFloat(this.playerMobj.x);
+    const oldY = FixedToFloat(this.playerMobj.y);
 
     // Get input for this tick
     const cmd = this.inputManager.buildTicCmd();
@@ -208,8 +232,21 @@ class DoomGame {
     // Apply Z momentum
     applyZMomentum(this.playerMobj);
 
+    // Check for walk triggers (lines crossed by player movement)
+    if (this.triggerSystem) {
+      this.triggerSystem.checkWalkTriggers(this.playerMobj, oldX, oldY);
+    }
+
     // Run all thinkers (enemies, projectiles, etc.)
     this.thinkerManager.runThinkers();
+
+    // Update doors and platforms
+    if (this.doorManager) {
+      this.doorManager.updateDoors();
+    }
+    if (this.platformManager) {
+      this.platformManager.updatePlatforms();
+    }
 
     // Log every second
     if (this.tickCount % TICRATE === 0) {
@@ -218,6 +255,53 @@ class DoomGame {
       const z = FixedToFloat(this.playerMobj.z);
       const thinkerCount = this.thinkerManager.getCount();
       console.log(`Tick ${tick}: Player at (${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)}) | Thinkers: ${thinkerCount}`);
+    }
+  }
+
+  /**
+   * Try to use/activate a line (spacebar)
+   */
+  private tryUseAction(): void {
+    if (!this.playerMobj || !this.triggerSystem || !this.mapData) return;
+
+    const px = FixedToFloat(this.playerMobj.x);
+    const py = FixedToFloat(this.playerMobj.y);
+
+    // Find nearest usable line within range
+    let nearestLine = -1;
+    let nearestDist = 64; // Use range
+
+    for (let i = 0; i < this.mapData.linedefs.length; i++) {
+      const line = this.mapData.linedefs[i];
+      if (line.special === 0) continue;
+
+      const v1 = this.mapData.vertexes[line.v1];
+      const v2 = this.mapData.vertexes[line.v2];
+
+      // Calculate distance to line
+      const dx = v2.x - v1.x;
+      const dy = v2.y - v1.y;
+      const len = Math.sqrt(dx * dx + dy * dy);
+      if (len === 0) continue;
+
+      // Project player position onto line
+      const t = Math.max(0, Math.min(1, ((px - v1.x) * dx + (py - v1.y) * dy) / (len * len)));
+      const projX = v1.x + t * dx;
+      const projY = v1.y + t * dy;
+
+      const dist = Math.sqrt((px - projX) ** 2 + (py - projY) ** 2);
+
+      if (dist < nearestDist) {
+        nearestDist = dist;
+        nearestLine = i;
+      }
+    }
+
+    if (nearestLine >= 0) {
+      const success = this.triggerSystem.useLine(this.playerMobj, nearestLine);
+      if (success) {
+        console.log(`Activated line ${nearestLine} (special ${this.mapData.linedefs[nearestLine].special})`);
+      }
     }
   }
 

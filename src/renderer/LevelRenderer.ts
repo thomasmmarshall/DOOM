@@ -313,6 +313,85 @@ export class LevelRenderer {
   }
 
   /**
+   * Update sector ceiling height in real-time
+   * Called when doors open/close
+   */
+  updateSectorCeiling(sectorIndex: number, newHeight: number): void {
+    const meshes = this.sectorMeshes.get(sectorIndex);
+    if (!meshes) return;
+
+    // Find the ceiling mesh (usually the second mesh)
+    for (const mesh of meshes) {
+      const geometry = mesh.geometry;
+      const positionAttribute = geometry.getAttribute('position');
+
+      if (!positionAttribute) continue;
+
+      // Check if this is a ceiling (meshes with Y > floor are ceilings)
+      // We need to check the first vertex to determine if it's floor or ceiling
+      const firstY = positionAttribute.getY(0);
+      const sector = this.mapData.sectors[sectorIndex];
+
+      // Convert to three.js coordinates
+      const floorY = sector.floorheight;
+      const expectedCeilingY = sector.ceilingheight;
+
+      // If this mesh's Y is close to the old ceiling height, it's the ceiling mesh
+      if (Math.abs(firstY - expectedCeilingY) < 1) {
+        // Update all Y coordinates to the new height
+        for (let i = 0; i < positionAttribute.count; i++) {
+          positionAttribute.setY(i, newHeight);
+        }
+
+        positionAttribute.needsUpdate = true;
+        geometry.computeBoundingSphere();
+
+        // Update the mapData to reflect the change
+        this.mapData.sectors[sectorIndex].ceilingheight = newHeight;
+        break;
+      }
+    }
+  }
+
+  /**
+   * Update sector floor height in real-time
+   * Called when platforms move
+   */
+  updateSectorFloor(sectorIndex: number, newHeight: number): void {
+    const meshes = this.sectorMeshes.get(sectorIndex);
+    if (!meshes) return;
+
+    // Find the floor mesh (usually the first mesh)
+    for (const mesh of meshes) {
+      const geometry = mesh.geometry;
+      const positionAttribute = geometry.getAttribute('position');
+
+      if (!positionAttribute) continue;
+
+      // Check if this is a floor (meshes with Y ≈ floor height)
+      const firstY = positionAttribute.getY(0);
+      const sector = this.mapData.sectors[sectorIndex];
+
+      const expectedFloorY = sector.floorheight;
+
+      // If this mesh's Y is close to the old floor height, it's the floor mesh
+      if (Math.abs(firstY - expectedFloorY) < 1) {
+        // Update all Y coordinates to the new height
+        for (let i = 0; i < positionAttribute.count; i++) {
+          positionAttribute.setY(i, newHeight);
+        }
+
+        positionAttribute.needsUpdate = true;
+        geometry.computeBoundingSphere();
+
+        // Update the mapData to reflect the change
+        this.mapData.sectors[sectorIndex].floorheight = newHeight;
+        break;
+      }
+    }
+  }
+
+  /**
    * Clean up resources
    */
   dispose(): void {
