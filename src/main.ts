@@ -122,8 +122,8 @@ class DoomGame {
       // Add sky
       this.levelRenderer.addSky(wad, rgbaPalette);
 
-      // Build level geometry
-      this.levelRenderer.buildLevel();
+      // Build level geometry (async - loads textures)
+      await this.levelRenderer.buildLevel();
 
       // Create player mobj at player start
       const playerStart = this.levelRenderer.getPlayerStart();

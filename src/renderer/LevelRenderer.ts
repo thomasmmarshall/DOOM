@@ -48,8 +48,11 @@ export class LevelRenderer {
   /**
    * Build and add all level geometry to the scene
    */
-  buildLevel(): void {
+  async buildLevel(): Promise<void> {
     console.log('Building level geometry...');
+
+    // Initialize texture system first
+    await this.textureManager.init();
 
     // Build walls
     const walls = WallBuilder.buildWalls(this.mapData);
