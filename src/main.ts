@@ -11,7 +11,8 @@ import { loadWAD } from './demo';
 import { MapParser } from './level';
 import { PaletteLoader } from './graphics';
 import { LevelRenderer } from './renderer';
-import { doomToThree, doomAngleToThree } from './core';
+import { doomToThree, doomAngleToThree, initTables, GameTicker, TICRATE } from './core';
+import { InputManager } from './input';
 
 class DoomGame {
   private scene: THREE.Scene;
@@ -20,8 +21,16 @@ class DoomGame {
   private controls: OrbitControls;
   private infoElement: HTMLElement;
   private levelRenderer?: LevelRenderer;
+  private ticker?: GameTicker;
+  private inputManager: InputManager;
+  private tickCount: number = 0;
 
   constructor() {
+    // Initialize trigonometry tables
+    initTables();
+
+    // Initialize input manager
+    this.inputManager = new InputManager();
     // Initialize three.js scene
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x000000);
@@ -132,12 +141,46 @@ class DoomGame {
         this.controls.update();
       }
 
-      this.updateInfo(`${mapName} loaded! Use mouse to look around, scroll to zoom.`);
+      this.updateInfo(`${mapName} loaded! Use mouse to look around, scroll to zoom. Press P to start game ticker.`);
       console.log('Level rendering complete');
+
+      // Set up ticker (but don't start it yet - user can press P to start)
+      this.ticker = new GameTicker((tick) => this.gameTick(tick));
+
+      // Add key listener for starting ticker
+      window.addEventListener('keydown', (e) => {
+        if (e.code === 'KeyP' && this.ticker) {
+          this.ticker.start();
+          console.log('Game ticker started');
+          this.updateInfo(`${mapName} - Game ticker running at ${TICRATE} Hz`);
+        }
+      });
     } catch (error) {
       console.error('Error initializing game:', error);
       this.updateInfo(`Error: ${error}`);
     }
+  }
+
+  /**
+   * Game tick - runs at 35 Hz
+   */
+  private gameTick(tick: number): void {
+    this.tickCount++;
+
+    // Get input for this tick
+    const cmd = this.inputManager.buildTicCmd();
+
+    // For now, just log every second
+    if (this.tickCount % TICRATE === 0) {
+      console.log(`Tick ${tick}: Running at ${TICRATE} Hz`);
+    }
+
+    // TODO: Process game logic here in Phase 3+
+    // - Player movement
+    // - Enemy AI
+    // - Collision detection
+    // - Weapon fire
+    // - etc.
   }
 
   public start(): void {

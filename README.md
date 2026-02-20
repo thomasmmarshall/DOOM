@@ -4,7 +4,7 @@ A modern reimplementation of DOOM (1993) using three.js and TypeScript. This pro
 
 ## Project Status
 
-**Current Phase**: Phase 1 - Static Geometry Rendering ✅
+**Current Phase**: Phase 2 - Core Game Loop & Math ✅
 
 ### Completed
 - ✅ **Phase 0**: Foundation & Data Pipeline
@@ -27,8 +27,16 @@ A modern reimplementation of DOOM (1993) using three.js and TypeScript. This pro
   - Level renderer
   - E1M1 fully rendered with orbit controls
 
+- ✅ **Phase 2**: Core Game Loop & Math
+  - Fixed-point arithmetic (16.16 format) with FixedMul/FixedDiv
+  - Trigonometry tables (finesine, finecosine, finetangent)
+  - Binary Angle Measurement (BAM) system
+  - 35 Hz game ticker with deterministic timing
+  - Input manager (keyboard, mouse)
+  - TicCmd structure for input buffering
+
 ### Next Steps
-- Phase 2: Core Game Loop & Math (35 Hz tick rate, fixed-point math)
+- Phase 3: Player Movement & Physics (DOOM-accurate movement and collision)
 
 ## Development
 
