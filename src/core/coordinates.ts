@@ -38,15 +38,23 @@ export function threeToDoom(x: number, y: number, z: number): { x: number; y: nu
 }
 
 /**
+ * Convert DOOM angle (BAM - Binary Angle Measurement) to three.js radians
+ * DOOM: 0=East, ANG90=North, ANG180=West, ANG270=South
+ * BAM uses full 32-bit unsigned int (0 to 0xFFFFFFFF) for 360 degrees
+ */
+export function doomAngleToThreeRadians(angle: number): number {
+  // Convert BAM (0 to 0x100000000) to radians (0 to 2π)
+  const radians = ((angle >>> 0) * 2 * Math.PI) / 0x100000000;
+  return radians;
+}
+
+/**
  * Convert DOOM angle (degrees) to three.js angle (radians)
  * DOOM: 0=East, 90=North, 180=West, 270=South
  * three.js: radians, standard mathematical convention
  */
 export function doomAngleToThree(degrees: number): number {
-  // DOOM angles: 0=East (right), 90=North (forward)
-  // three.js: 0=East (right), π/2=North (forward in -Z)
-  // Need to convert and negate Y (which becomes -Z in three.js)
-  return THREE.MathUtils.degToRad(90 - degrees);
+  return THREE.MathUtils.degToRad(degrees);
 }
 
 /**
