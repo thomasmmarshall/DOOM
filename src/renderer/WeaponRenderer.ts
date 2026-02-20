@@ -73,11 +73,15 @@ export class WeaponRenderer {
     this.scene = new THREE.Scene();
 
     // Camera positioned to see weapon sprite
-    // Use screen coordinates (0-320 width, 0-200 height for DOOM's resolution)
+    // Use screen coordinates matching DOOM's 320x200 resolution
+    // Origin at bottom-left (0, 0), extends to top-right (320, 200)
     this.camera = new THREE.OrthographicCamera(
-      0, 320, // left, right
-      0, 200, // top, bottom
-      -1, 1   // near, far
+      0,    // left
+      320,  // right
+      200,  // top
+      0,    // bottom
+      -1,   // near
+      1     // far
     );
     this.camera.position.z = 0;
   }
@@ -204,25 +208,30 @@ export class WeaponRenderer {
     }
 
     // Position weapon using DOOM's weapon positioning
-    // DOOM weapon position: (160, 32) at the bottom center-ish
-    // The offsets from the patch determine where the "anchor point" is
+    // DOOM resolution: 320x200
+    // Weapons are positioned at the bottom-center of screen
 
-    // Scale the weapon (DOOM resolution is 320x200, weapons typically show at 1:1 scale)
+    // Scale the weapon 1:1 with sprite pixels
     this.weaponMesh.scale.set(sprite.width, sprite.height, 1);
 
-    // Position weapon at bottom center
-    // X: center of screen (160) - leftoffset gives us the sprite's center point
-    // Y: DOOM weapon Y position is typically 32 units from bottom (200 - 32 = 168)
-    // The topoffset tells us where the sprite's anchor is vertically
+    // DOOM weapon positioning:
+    // X: 160 (center of 320-wide screen)
+    // Y: 200 - 32 = 168 (32 units from bottom)
+    // The leftoffset and topoffset define where the weapon sprite's "anchor" is
 
-    const weaponX = 160; // Center of 320-wide screen
-    const weaponY = 32;  // Distance from bottom of 200-tall screen (DOOM standard)
+    const SCREEN_WIDTH = 320;
+    const SCREEN_HEIGHT = 200;
+    const WEAPON_Y_OFFSET = 32; // From bottom of screen
 
-    // Apply offsets - these position the sprite so its anchor point is at weaponX, weaponY
-    // leftoffset: how far from left edge of sprite to the anchor point
-    // topoffset: how far from top edge of sprite to the anchor point
-    const xPos = weaponX - sprite.leftoffset + (sprite.width / 2);
-    const yPos = weaponY - sprite.topoffset + (sprite.height / 2) + this.bobOffset;
+    // Weapon anchor point in screen space
+    const anchorX = SCREEN_WIDTH / 2; // 160 - center of screen
+    const anchorY = SCREEN_HEIGHT - WEAPON_Y_OFFSET; // 168 - position from bottom
+
+    // Calculate final position
+    // The patch offsets tell us where the sprite's anchor is relative to its top-left corner
+    // We need to position the sprite so its anchor aligns with our desired screen position
+    const xPos = anchorX - sprite.leftoffset + (sprite.width / 2);
+    const yPos = anchorY - sprite.topoffset + (sprite.height / 2) + this.bobOffset;
 
     this.weaponMesh.position.set(xPos, yPos, 0);
   }
