@@ -13,13 +13,14 @@ import { PaletteLoader } from './graphics';
 import { LevelRenderer, WeaponRenderer } from './renderer';
 import { doomToThree, doomAngleToThree, doomAngleToThreeRadians, initTables, GameTicker, TICRATE, IntToFixed, FixedToFloat, DegreesToAngle } from './core';
 import { InputManager } from './input';
-import { createPlayerMobj, type Mobj, ThinkerManager, TriggerSystem } from './game';
+import { createPlayerMobj, type Mobj, MobjFlags, ThinkerManager, TriggerSystem } from './game';
 import { movePlayer, applyFriction, applyGravity, applyZMomentum, calculateViewZ, applyCollision } from './physics';
 import type { MapData } from './level';
 import { DoorManager, PlatformManager } from './sectors';
 import { StatusBar, type PlayerStats } from './ui';
 import { createPlayerWeapon, updateWeapon, fireWeapon, switchWeapon, WeaponType, performHitscan, WEAPON_INFO } from './weapons/WeaponSystem';
 import { damageActor, WeaponDamage } from './game/Damage';
+import { tryPickupItem, checkItemCollision } from './game/Pickups';
 
 class DoomGame {
   private scene: THREE.Scene;
@@ -295,6 +296,18 @@ class DoomGame {
 
     // Apply Z momentum
     applyZMomentum(this.playerMobj);
+
+    // Check for item pickups
+    const allMobjs = this.thinkerManager.getAllMobjs();
+    for (const item of allMobjs) {
+      // Skip non-special items
+      if (!(item.flags & MobjFlags.SPECIAL)) continue;
+
+      // Check collision with player
+      if (checkItemCollision(this.playerMobj, item)) {
+        tryPickupItem(item, this.playerMobj);
+      }
+    }
 
     // Check for walk triggers (lines crossed by player movement)
     if (this.triggerSystem) {
