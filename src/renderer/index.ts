@@ -3,3 +3,4 @@ export * from './SectorBuilder';
 export * from './TextureManager';
 export * from './SkyRenderer';
 export * from './LevelRenderer';
+export * from './BSPRenderer';

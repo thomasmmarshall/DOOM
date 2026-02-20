@@ -10,11 +10,16 @@ import { WallBuilder } from './WallBuilder';
 import { SectorBuilder } from './SectorBuilder';
 import { TextureManager } from './TextureManager';
 import { SkyRenderer } from './SkyRenderer';
+import { BSPRenderer } from './BSPRenderer';
 
 export class LevelRenderer {
   private scene: THREE.Scene;
   private textureManager: TextureManager;
   private mapData: MapData;
+  private bspRenderer: BSPRenderer;
+  private sectorMeshes: Map<number, THREE.Mesh[]>; // sector index -> meshes
+  private wallMeshes: THREE.Mesh[];
+  private useBSPCulling: boolean = true;
 
   constructor(
     scene: THREE.Scene,
@@ -25,6 +30,9 @@ export class LevelRenderer {
     this.scene = scene;
     this.textureManager = new TextureManager(wad, palette);
     this.mapData = mapData;
+    this.bspRenderer = new BSPRenderer(mapData);
+    this.sectorMeshes = new Map();
+    this.wallMeshes = [];
   }
 
   /**
@@ -45,14 +53,19 @@ export class LevelRenderer {
       );
 
       const mesh = new THREE.Mesh(wall.geometry, material);
+      mesh.frustumCulled = false; // We'll handle culling with BSP
       this.scene.add(mesh);
+      this.wallMeshes.push(mesh);
     }
 
     // Build sectors (floors and ceilings)
     const sectors = SectorBuilder.buildSectors(this.mapData);
     console.log(`Built ${sectors.length} sectors`);
 
-    for (const sector of sectors) {
+    for (let i = 0; i < sectors.length; i++) {
+      const sector = sectors[i];
+      const meshes: THREE.Mesh[] = [];
+
       // Floor
       if (sector.floorGeometry && sector.floorTexture !== 'F_SKY1') {
         const floorMaterial = this.textureManager.createFlatMaterial(
@@ -60,7 +73,9 @@ export class LevelRenderer {
           sector.lightLevel
         );
         const floorMesh = new THREE.Mesh(sector.floorGeometry, floorMaterial);
+        floorMesh.frustumCulled = false; // We'll handle culling with BSP
         this.scene.add(floorMesh);
+        meshes.push(floorMesh);
       }
 
       // Ceiling
@@ -70,11 +85,18 @@ export class LevelRenderer {
           sector.lightLevel
         );
         const ceilingMesh = new THREE.Mesh(sector.ceilingGeometry, ceilingMaterial);
+        ceilingMesh.frustumCulled = false; // We'll handle culling with BSP
         this.scene.add(ceilingMesh);
+        meshes.push(ceilingMesh);
+      }
+
+      if (meshes.length > 0) {
+        this.sectorMeshes.set(i, meshes);
       }
     }
 
     console.log('Level geometry complete');
+    console.log(`BSP culling: ${this.useBSPCulling ? 'enabled' : 'disabled'}`);
   }
 
   /**
@@ -85,6 +107,61 @@ export class LevelRenderer {
     if (sky) {
       this.scene.add(sky);
       console.log('Sky added');
+    }
+  }
+
+  /**
+   * Update geometry visibility based on BSP tree and camera position
+   * Call this each frame from the main render loop
+   * @param cameraX - Camera X position in DOOM coordinates
+   * @param cameraY - Camera Y position in DOOM coordinates
+   */
+  updateVisibility(cameraX: number, cameraY: number): void {
+    if (!this.useBSPCulling) {
+      // BSP culling disabled - show everything
+      return;
+    }
+
+    // Get visible subsectors from BSP traversal
+    const visibleSubsectors = this.bspRenderer.getVisibleSubsectors(cameraX, cameraY);
+
+    // Build set of visible sectors
+    const visibleSectors = new Set<number>();
+    for (const subsectorIdx of visibleSubsectors) {
+      const sectorIdx = this.bspRenderer.getSubsectorSector(subsectorIdx);
+      if (sectorIdx >= 0) {
+        visibleSectors.add(sectorIdx);
+      }
+    }
+
+    // Update sector mesh visibility
+    for (const [sectorIdx, meshes] of this.sectorMeshes.entries()) {
+      const visible = visibleSectors.has(sectorIdx);
+      for (const mesh of meshes) {
+        mesh.visible = visible;
+      }
+    }
+
+    // For now, keep all walls visible
+    // In a more advanced implementation, we'd track which walls belong to which subsectors
+  }
+
+  /**
+   * Enable or disable BSP culling
+   */
+  setBSPCulling(enabled: boolean): void {
+    this.useBSPCulling = enabled;
+
+    if (!enabled) {
+      // Show all geometry
+      for (const meshes of this.sectorMeshes.values()) {
+        for (const mesh of meshes) {
+          mesh.visible = true;
+        }
+      }
+      for (const mesh of this.wallMeshes) {
+        mesh.visible = true;
+      }
     }
   }
 

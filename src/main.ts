@@ -275,6 +275,13 @@ class DoomGame {
       this.updateCamera();
     }
 
+    // Update BSP visibility based on player/camera position
+    if (this.levelRenderer && this.playerMobj) {
+      const x = FixedToFloat(this.playerMobj.x);
+      const y = FixedToFloat(this.playerMobj.y);
+      this.levelRenderer.updateVisibility(x, y);
+    }
+
     // Render scene
     this.renderer.render(this.scene, this.camera);
   };
