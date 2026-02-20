@@ -11,10 +11,12 @@
     "test:ui": "vitest --ui"
   },
   "dependencies": {
+    "earcut": "^3.0.2",
     "three": "^0.160.0",
     "three-stdlib": "^2.29.0"
   },
   "devDependencies": {
+    "@types/earcut": "^3.0.0",
     "@types/three": "^0.160.0",
     "@vitest/ui": "^1.2.0",
     "typescript": "^5.3.3",

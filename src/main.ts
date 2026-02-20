@@ -49,16 +49,20 @@ class DoomGame {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x000000);
 
+    // DOOM's original aspect ratio was 4:3 (320x200 stretched to 4:3 CRT)
+    // FOV is approximately 73.74 degrees horizontal
     this.camera = new THREE.PerspectiveCamera(
-      75, // FOV - DOOM's FOV is about 73.74 degrees
-      window.innerWidth / window.innerHeight,
+      73.74, // DOOM's horizontal FOV
+      4 / 3, // 4:3 aspect ratio like original DOOM
       1,
       10000
     );
 
     this.renderer = new THREE.WebGLRenderer({ antialias: false });
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(window.devicePixelRatio);
+    this.renderer.setPixelRatio(1); // Pixel-perfect rendering like DOOM
+
+    // Calculate viewport size maintaining 4:3 aspect ratio
+    this.updateRendererSize();
     document.body.appendChild(this.renderer.domElement);
 
     // Set up orbit controls for camera navigation
@@ -79,10 +83,36 @@ class DoomGame {
     this.updateInfo('DOOM three.js - Loading...');
   }
 
+  /**
+   * Update renderer size maintaining 4:3 aspect ratio
+   */
+  private updateRendererSize(): void {
+    const windowAspect = window.innerWidth / window.innerHeight;
+    const targetAspect = 4 / 3;
+
+    let width, height;
+
+    if (windowAspect > targetAspect) {
+      // Window is wider - pillarbox (black bars on sides)
+      height = window.innerHeight;
+      width = height * targetAspect;
+    } else {
+      // Window is taller - letterbox (black bars on top/bottom)
+      width = window.innerWidth;
+      height = width / targetAspect;
+    }
+
+    this.renderer.setSize(width, height);
+
+    // Center the canvas
+    this.renderer.domElement.style.position = 'absolute';
+    this.renderer.domElement.style.left = `${(window.innerWidth - width) / 2}px`;
+    this.renderer.domElement.style.top = `${(window.innerHeight - height) / 2}px`;
+  }
+
   private onResize(): void {
-    this.camera.aspect = window.innerWidth / window.innerHeight;
+    this.updateRendererSize();
     this.camera.updateProjectionMatrix();
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
   }
 
   private updateInfo(text: string): void {
