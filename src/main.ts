@@ -325,15 +325,9 @@ class DoomGame {
       this.platformManager.updatePlatforms();
     }
 
-    // Update player weapon
+    // Update player weapon state
     if (this.playerMobj.player?.weapon) {
       updateWeapon(this.playerMobj.player.weapon);
-    }
-
-    // Update weapon renderer
-    if (this.weaponRenderer && this.playerMobj.player?.weapon) {
-      const bob = FixedToFloat(this.playerMobj.player.bob);
-      this.weaponRenderer.update(this.playerMobj.player.weapon, bob);
     }
 
     // Update HUD
@@ -577,6 +571,12 @@ class DoomGame {
       const x = FixedToFloat(this.playerMobj.x);
       const y = FixedToFloat(this.playerMobj.y);
       this.levelRenderer.updateVisibility(x, y, this.camera.position);
+    }
+
+    // Update weapon every frame (not just in game tick)
+    if (this.weaponRenderer && this.playerMobj?.player?.weapon) {
+      const bob = FixedToFloat(this.playerMobj.player.bob);
+      this.weaponRenderer.update(this.playerMobj.player.weapon, bob);
     }
 
     // Render scene

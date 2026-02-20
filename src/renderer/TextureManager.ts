@@ -115,6 +115,8 @@ export class TextureManager {
     texture.minFilter = THREE.NearestFilter;
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
+    texture.needsUpdate = true;
+    texture.colorSpace = THREE.SRGBColorSpace;
 
     this.textureCache.set(upperName, texture);
     return texture;
@@ -197,17 +199,24 @@ export class TextureManager {
 
     try {
       const canvas = FlatLoader.flatToCanvas(flatData, this.palette);
+
+      if (!canvas || canvas.width === 0 || canvas.height === 0) {
+        console.error(`Flat ${upperName} has invalid dimensions`);
+        return this.createMissingFlat(upperName);
+      }
+
       const texture = new THREE.CanvasTexture(canvas);
       texture.magFilter = THREE.NearestFilter;
       texture.minFilter = THREE.NearestFilter;
       texture.wrapS = THREE.RepeatWrapping;
       texture.wrapT = THREE.RepeatWrapping;
       texture.needsUpdate = true; // Ensure THREE.js knows to upload the texture
+      texture.colorSpace = THREE.SRGBColorSpace;
 
       this.flatCache.set(upperName, texture);
       return texture;
     } catch (error) {
-      console.warn(`Failed to decode flat ${name}:`, error);
+      console.error(`Failed to decode flat ${name}:`, error);
       return this.createMissingFlat(upperName);
     }
   }
@@ -251,15 +260,16 @@ export class TextureManager {
     const texture = this.getTexture(textureName);
 
     // Convert DOOM light level (0-255) to brightness multiplier
-    // Use /255 for more accurate brightness, with a minimum floor
-    const brightness = Math.max(0.2, Math.min(1.0, lightLevel / 255));
+    // Use a minimum of 0.3 to ensure dark areas are still visible
+    const brightness = Math.max(0.3, Math.min(1.0, lightLevel / 255));
 
     const material = new THREE.MeshBasicMaterial({
       map: texture,
       color: new THREE.Color(brightness, brightness, brightness),
       transparent: transparent,
-      side: THREE.DoubleSide, // Render both sides for better visibility
+      side: THREE.DoubleSide,
       depthWrite: !transparent,
+      colorSpace: THREE.SRGBColorSpace,
     });
 
     return material;
@@ -269,14 +279,15 @@ export class TextureManager {
    * Create material for a flat (floor/ceiling) with light level
    */
   createFlatMaterial(flatName: string, lightLevel: number): THREE.MeshBasicMaterial {
-    let texture = this.getFlat(flatName);
+    const texture = this.getFlat(flatName);
 
     // Convert DOOM light level (0-255) to brightness multiplier
-    // Use /255 for more accurate brightness, with a minimum floor
-    const brightness = Math.max(0.2, Math.min(1.0, lightLevel / 255));
+    // DOOM uses 0-255, where 255 is full bright
+    // Use a minimum of 0.3 to ensure dark areas are still visible
+    const brightness = Math.max(0.3, Math.min(1.0, lightLevel / 255));
 
     if (!texture) {
-      console.warn(`No texture for flat "${flatName}"`);
+      console.error(`No texture for flat "${flatName}" - using magenta placeholder`);
       // Create a material with visible color instead of black
       return new THREE.MeshBasicMaterial({
         color: 0xFF00FF,
@@ -284,49 +295,11 @@ export class TextureManager {
       });
     }
 
-    // Check if texture appears to be all black by examining the source canvas
-    const canvas = (texture.image as HTMLCanvasElement);
-    if (canvas && canvas.getContext) {
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        const imageData = ctx.getImageData(0, 0, Math.min(64, canvas.width), Math.min(64, canvas.height));
-        let hasColor = false;
-        let nonTransparentPixels = 0;
-        let totalBrightness = 0;
-
-        for (let i = 0; i < imageData.data.length; i += 4) {
-          const r = imageData.data[i];
-          const g = imageData.data[i + 1];
-          const b = imageData.data[i + 2];
-          const a = imageData.data[i + 3];
-
-          // Skip fully transparent pixels
-          if (a === 0) continue;
-
-          nonTransparentPixels++;
-          totalBrightness += r + g + b;
-
-          // Check if any pixel has RGB values > 10 (to account for very dark but not pure black)
-          if (r > 10 || g > 10 || b > 10) {
-            hasColor = true;
-          }
-        }
-
-        const avgBrightness = nonTransparentPixels > 0 ? totalBrightness / (nonTransparentPixels * 3) : 0;
-
-        if (!hasColor && nonTransparentPixels > 100) {
-          console.warn(`Flat "${flatName}" is all black (avg brightness: ${avgBrightness.toFixed(1)}) - replacing with placeholder`);
-          texture = this.createMissingFlat(flatName + '_BLACK');
-        } else if (avgBrightness < 5 && nonTransparentPixels > 100) {
-          console.warn(`Flat "${flatName}" is very dark (avg brightness: ${avgBrightness.toFixed(1)}) but allowing it`);
-        }
-      }
-    }
-
     const material = new THREE.MeshBasicMaterial({
       map: texture,
       color: new THREE.Color(brightness, brightness, brightness),
-      side: THREE.DoubleSide, // Render both sides
+      side: THREE.DoubleSide,
+      colorSpace: THREE.SRGBColorSpace,
     });
 
     return material;

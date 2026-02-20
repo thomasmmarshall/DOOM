@@ -52,23 +52,7 @@ export class FlatLoader {
     imageData.data.set(rgba);
     ctx.putImageData(imageData, 0, 0);
 
-    // Debug: Check pixel data quality
-    let hasNonBlackPixel = false;
-    let samplePixels = [];
-    for (let i = 0; i < rgba.length; i += 4) {
-      // Sample first 10 non-transparent pixels
-      if (samplePixels.length < 10 && rgba[i + 3] > 0) {
-        samplePixels.push({ r: rgba[i], g: rgba[i + 1], b: rgba[i + 2], a: rgba[i + 3] });
-      }
-
-      if (rgba[i] !== 0 || rgba[i + 1] !== 0 || rgba[i + 2] !== 0) {
-        hasNonBlackPixel = true;
-        if (samplePixels.length >= 10) break;
-      }
-    }
-    if (!hasNonBlackPixel && rgba.length > 0) {
-      console.warn(`Flat decoded to all black pixels. Samples:`, samplePixels.slice(0, 3));
-    }
+    // Removed debug pixel checking - some DOOM flats are legitimately very dark/black
 
     return canvas;
   }
