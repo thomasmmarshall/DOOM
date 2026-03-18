@@ -43,9 +43,12 @@ export function tryPickupItem(item: Mobj, player: Mobj): PickupResult {
     item.health = 0;
     item.flags &= ~MobjFlags.SPECIAL;
     item.flags &= ~MobjFlags.SOLID;
+    item.removed = true;
 
-    // TODO: Play pickup sound
-    // TODO: Show pickup message
+    if (player.player && result.message) {
+      player.player.message = result.message;
+      player.player.bonusCount = 6;
+    }
 
     console.log(`Picked up: ${result.message || 'item'}`);
   }
@@ -78,13 +81,13 @@ function pickupByType(item: Mobj, player: Mobj): PickupResult {
       return giveHealth(player, 100, 200, 'Supercharge!');
 
     // ARMOR ITEMS
-    case 2018: // Armor bonus
+    case 2015: // Armor bonus
       return giveArmor(player, 1, 200, 'Picked up an armor bonus.');
 
-    case 2019: // Green armor
+    case 2018: // Green armor
       return giveArmor(player, 100, 100, 'Picked up the armor.');
 
-    case 2015: // Blue armor
+    case 2019: // Blue armor
       return giveArmor(player, 200, 200, 'Picked up the MegaArmor!');
 
     // AMMO - BULLETS
@@ -196,9 +199,18 @@ function giveHealth(player: Mobj, amount: number, max: number, message: string):
 function giveArmor(player: Mobj, amount: number, max: number, message: string): PickupResult {
   if (!player.player) return { success: false };
 
-  // TODO: Add armor to player state
-  // For now, just accept it
-  console.log(`Armor given: ${amount} (max: ${max})`);
+  if (amount === 1) {
+    if (player.player.armor >= max) {
+      return { success: false };
+    }
+    player.player.armor = Math.min(player.player.armor + amount, max);
+  } else {
+    if (player.player.armor >= amount && player.player.armorType >= (amount >= 200 ? 2 : 1)) {
+      return { success: false };
+    }
+    player.player.armor = amount;
+    player.player.armorType = amount >= 200 ? 2 : 1;
+  }
 
   return { success: true, message };
 }
@@ -214,19 +226,12 @@ function giveAmmo(
 ): PickupResult {
   if (!player.player?.ammo) return { success: false };
 
-  const maxAmmo = {
-    bullets: 200,
-    shells: 50,
-    rockets: 50,
-    cells: 300,
-  };
-
   const currentAmmo = player.player.ammo[ammoType] || 0;
-  if (currentAmmo >= maxAmmo[ammoType]) {
+  if (currentAmmo >= player.player.maxAmmo[ammoType]) {
     return { success: false }; // Already at max
   }
 
-  player.player.ammo[ammoType] = Math.min(currentAmmo + amount, maxAmmo[ammoType]);
+  player.player.ammo[ammoType] = Math.min(currentAmmo + amount, player.player.maxAmmo[ammoType]);
   return { success: true, message };
 }
 
@@ -242,15 +247,24 @@ function giveWeapon(
 ): PickupResult {
   if (!player.player) return { success: false };
 
-  // TODO: Track owned weapons in player state
-  // For now, just give ammo
+  const weaponIndex = Math.max(0, Math.min(player.player.weapons.length - 1, weaponNum));
+  const alreadyOwned = !!player.player.weapons[weaponIndex];
+
   if (ammoType && player.player.ammo) {
     const type = ammoType as 'bullets' | 'shells' | 'rockets' | 'cells';
     const currentAmmo = player.player.ammo[type] || 0;
-    player.player.ammo[type] = currentAmmo + ammoAmount;
+    player.player.ammo[type] = Math.min(
+      currentAmmo + ammoAmount,
+      player.player.maxAmmo[type]
+    );
   }
 
-  return { success: true, message };
+  if (!alreadyOwned) {
+    player.player.weapons[weaponIndex] = true;
+    return { success: true, message };
+  }
+
+  return ammoAmount > 0 ? { success: true, message } : { success: false };
 }
 
 /**
@@ -259,8 +273,11 @@ function giveWeapon(
 function giveKey(player: Mobj, keyType: string, message: string): PickupResult {
   if (!player.player) return { success: false };
 
-  // TODO: Track keys in player state
-  console.log(`Key given: ${keyType}`);
+  const keyName = keyType as keyof NonNullable<Mobj['player']>['keys'];
+  if (player.player.keys[keyName]) {
+    return { success: false };
+  }
+  player.player.keys[keyName] = true;
 
   return { success: true, message };
 }
@@ -271,8 +288,7 @@ function giveKey(player: Mobj, keyType: string, message: string): PickupResult {
 function givePowerup(player: Mobj, powerupType: string, duration: number, message: string): PickupResult {
   if (!player.player) return { success: false };
 
-  // TODO: Track powerups in player state with duration timers
-  console.log(`Powerup given: ${powerupType} for ${duration} seconds`);
+  player.player.powerups[powerupType] = duration;
 
   return { success: true, message };
 }

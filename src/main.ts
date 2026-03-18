@@ -11,16 +11,17 @@ import { loadWAD } from './demo';
 import { MapParser } from './level';
 import { PaletteLoader } from './graphics';
 import { LevelRenderer, WeaponRenderer } from './renderer';
-import { doomToThree, doomAngleToThree, doomAngleToThreeRadians, initTables, GameTicker, TICRATE, IntToFixed, FixedToFloat, DegreesToAngle } from './core';
-import { InputManager } from './input';
-import { createPlayerMobj, type Mobj, MobjFlags, ThinkerManager, TriggerSystem } from './game';
+import { doomToThree, doomAngleToThreeRadians, initTables, GameTicker, TICRATE, IntToFixed, FixedToFloat, DegreesToAngle } from './core';
+import { InputManager, Button } from './input';
+import { createPlayerMobj, type Mobj, MobjFlags, ThinkerManager, TriggerSystem, ThingSpawner } from './game';
 import { movePlayer, applyFriction, applyGravity, applyZMomentum, calculateViewZ, applyCollision } from './physics';
 import type { MapData } from './level';
 import { DoorManager, PlatformManager } from './sectors';
 import { StatusBar, type PlayerStats } from './ui';
-import { createPlayerWeapon, updateWeapon, fireWeapon, switchWeapon, WeaponType, performHitscan, WEAPON_INFO } from './weapons/WeaponSystem';
+import { createPlayerWeapon, updateWeapon, fireWeapon, WeaponType, performHitscan, WEAPON_INFO, switchPlayerWeapon, canPlayerUseWeapon, consumeWeaponAmmo } from './weapons/WeaponSystem';
 import { damageActor, WeaponDamage } from './game/Damage';
 import { tryPickupItem, checkItemCollision } from './game/Pickups';
+import { monsterThinker } from './ai';
 
 class DoomGame {
   private scene: THREE.Scene;
@@ -41,6 +42,7 @@ class DoomGame {
   private triggerSystem?: TriggerSystem;
   private weaponRenderer?: WeaponRenderer;
   private statusBar?: StatusBar;
+  private previousButtons: number = 0;
 
   constructor() {
     // Initialize trigonometry tables
@@ -125,6 +127,61 @@ class DoomGame {
     this.infoElement.textContent = text;
   }
 
+  private addWorldMobj(mobj: Mobj, thinker?: (mobj: Mobj) => void): void {
+    this.thinkerManager.addThinker(mobj, thinker ?? (() => {}));
+  }
+
+  private spawnMapThings(): void {
+    if (!this.mapData) {
+      return;
+    }
+
+    const spawner = new ThingSpawner();
+    const spawnedThings = spawner.spawnThings(this.mapData);
+
+    for (const spawned of spawnedThings) {
+      const thinker = spawned.mobj.countsTowardKill ? monsterThinker : undefined;
+      this.addWorldMobj(spawned.mobj, thinker);
+    }
+
+    this.levelRenderer?.syncWorldMobjs(this.thinkerManager.getAllMobjs());
+  }
+
+  private cleanupRemovedMobjs(): void {
+    const mobjs = this.thinkerManager.getAllMobjs();
+    for (const mobj of mobjs) {
+      if (mobj.removed) {
+        this.thinkerManager.removeThinkerByMobj(mobj);
+      }
+    }
+  }
+
+  private getCurrentAmmo(): number {
+    if (!this.playerMobj?.player?.weapon || !this.playerMobj.player) {
+      return 0;
+    }
+
+    const weaponInfo = WEAPON_INFO.get(this.playerMobj.player.weapon.currentWeapon);
+    if (!weaponInfo?.ammoType) {
+      return 0;
+    }
+
+    return this.playerMobj.player.ammo[weaponInfo.ammoType];
+  }
+
+  private getCurrentMaxAmmo(): number {
+    if (!this.playerMobj?.player?.weapon || !this.playerMobj.player) {
+      return 0;
+    }
+
+    const weaponInfo = WEAPON_INFO.get(this.playerMobj.player.weapon.currentWeapon);
+    if (!weaponInfo?.ammoType) {
+      return 0;
+    }
+
+    return this.playerMobj.player.maxAmmo[weaponInfo.ammoType];
+  }
+
   public async init(): Promise<void> {
     try {
       this.updateInfo('Loading WAD file...');
@@ -186,6 +243,7 @@ class DoomGame {
 
       // Build level geometry (async - loads textures)
       await this.levelRenderer.buildLevel();
+      this.spawnMapThings();
 
       // Create player mobj at player start
       const playerStart = this.levelRenderer.getPlayerStart();
@@ -237,28 +295,15 @@ class DoomGame {
             this.inputManager.requestPointerLock();
           }
           console.log(`${this.useOrbitControls ? 'Orbit controls' : 'First-person mode'} enabled`);
-        } else if (e.code === 'Space' && this.playerMobj && this.triggerSystem) {
-          // Use action - find nearest usable line
-          this.tryUseAction();
-        } else if (e.code === 'ControlLeft' || e.code === 'ControlRight') {
-          // Fire weapon
-          this.firePlayerWeapon();
         } else if (e.code.startsWith('Digit') && this.playerMobj?.player?.weapon) {
           // Weapon switching (1-7)
           const digit = parseInt(e.code.substring(5));
           if (digit >= 1 && digit <= 7) {
             const weaponType = digit - 1; // Convert to WeaponType enum (0-6)
-            switchWeapon(this.playerMobj.player.weapon, weaponType);
-            console.log(`Switching to weapon ${digit}`);
+            if (switchPlayerWeapon(this.playerMobj, weaponType)) {
+              console.log(`Switching to weapon ${digit}`);
+            }
           }
-        }
-      });
-
-      // Add mouse click for weapon firing
-      window.addEventListener('mousedown', (e) => {
-        if (e.button === 0 && !this.useOrbitControls) {
-          // Left click - fire weapon
-          this.firePlayerWeapon();
         }
       });
     } catch (error) {
@@ -281,6 +326,16 @@ class DoomGame {
 
     // Get input for this tick
     const cmd = this.inputManager.buildTicCmd();
+
+    if ((cmd.buttons & Button.USE) && !(this.previousButtons & Button.USE) && this.triggerSystem) {
+      this.tryUseAction();
+    }
+
+    if ((cmd.buttons & Button.ATTACK) && !(this.previousButtons & Button.ATTACK)) {
+      this.firePlayerWeapon();
+    }
+
+    this.previousButtons = cmd.buttons;
 
     // Apply player movement
     movePlayer(this.playerMobj, cmd);
@@ -309,6 +364,8 @@ class DoomGame {
       }
     }
 
+    this.cleanupRemovedMobjs();
+
     // Check for walk triggers (lines crossed by player movement)
     if (this.triggerSystem) {
       this.triggerSystem.checkWalkTriggers(this.playerMobj, oldX, oldY);
@@ -330,24 +387,34 @@ class DoomGame {
       updateWeapon(this.playerMobj.player.weapon);
     }
 
+    if (this.playerMobj.player) {
+      if (this.playerMobj.player.bonusCount > 0) {
+        this.playerMobj.player.bonusCount--;
+      } else if (this.playerMobj.player.message) {
+        this.playerMobj.player.message = '';
+      }
+
+      for (const [powerup, duration] of Object.entries(this.playerMobj.player.powerups)) {
+        if (duration > 0) {
+          this.playerMobj.player.powerups[powerup] = duration - 1;
+        }
+      }
+    }
+
+    this.levelRenderer?.syncWorldMobjs(this.thinkerManager.getAllMobjs());
+
     // Update HUD
     if (this.statusBar && this.playerMobj.player) {
       const stats: PlayerStats = {
         health: this.playerMobj.health,
-        armor: 0, // TODO: Add armor to player state
-        ammo: this.playerMobj.player.ammo?.bullets || 0,
-        maxAmmo: 200,
-        keys: {
-          blueCard: false,
-          yellowCard: false,
-          redCard: false,
-          blueSkull: false,
-          yellowSkull: false,
-          redSkull: false,
-        },
-        weapons: [true, true, false, false, false, false, false], // Have fist and pistol
+        armor: this.playerMobj.player.armor,
+        ammo: this.getCurrentAmmo(),
+        maxAmmo: this.getCurrentMaxAmmo(),
+        keys: this.playerMobj.player.keys,
+        weapons: this.playerMobj.player.weapons,
         currentWeapon: this.playerMobj.player.weapon?.currentWeapon || 0,
-        face: 0,
+        face: this.playerMobj.health > 75 ? 0 : this.playerMobj.health > 40 ? 1 : 2,
+        message: this.playerMobj.player.message,
       };
       this.statusBar.render(stats);
     }
@@ -366,9 +433,12 @@ class DoomGame {
    * Fire player weapon
    */
   private firePlayerWeapon(): void {
-    if (!this.playerMobj?.player?.weapon) return;
+    if (!this.playerMobj?.player?.weapon || !this.mapData) return;
 
     const weapon = this.playerMobj.player.weapon;
+    if (!canPlayerUseWeapon(this.playerMobj, weapon.currentWeapon)) {
+      return;
+    }
     const success = fireWeapon(weapon, this.playerMobj);
 
     if (success) {
@@ -385,24 +455,20 @@ class DoomGame {
       // Perform hitscan based on weapon type
       if (weapon.currentWeapon === WeaponType.PISTOL) {
         const damage = WeaponDamage.PISTOL();
-        const result = performHitscan(this.playerMobj, fireAngle, damage, 0, allMobjs);
+        const result = performHitscan(this.playerMobj, fireAngle, damage, 0, allMobjs, this.mapData);
 
         if (result?.hit && result.target) {
           damageActor(result.target, result.damage, this.playerMobj);
           console.log(`Pistol hit for ${result.damage} damage!`);
         }
-
-        // Consume ammo
-        if (this.playerMobj.player.ammo) {
-          this.playerMobj.player.ammo.bullets = Math.max(0, this.playerMobj.player.ammo.bullets - 1);
-        }
+        consumeWeaponAmmo(this.playerMobj, weapon.currentWeapon);
       } else if (weapon.currentWeapon === WeaponType.SHOTGUN) {
         // Shotgun fires 7 pellets
         let hits = 0;
         for (let i = 0; i < 7; i++) {
           const damage = WeaponDamage.SHOTGUN_PELLET();
           const spread = 0.1; // Some spread for shotgun
-          const result = performHitscan(this.playerMobj, fireAngle, damage, spread, allMobjs);
+          const result = performHitscan(this.playerMobj, fireAngle, damage, spread, allMobjs, this.mapData);
 
           if (result?.hit && result.target) {
             damageActor(result.target, result.damage, this.playerMobj);
@@ -413,24 +479,16 @@ class DoomGame {
         if (hits > 0) {
           console.log(`Shotgun hit with ${hits}/7 pellets!`);
         }
-
-        // Consume ammo
-        if (this.playerMobj.player.ammo) {
-          this.playerMobj.player.ammo.shells = Math.max(0, (this.playerMobj.player.ammo.shells || 0) - 1);
-        }
+        consumeWeaponAmmo(this.playerMobj, weapon.currentWeapon);
       } else if (weapon.currentWeapon === WeaponType.CHAINGUN) {
         const damage = WeaponDamage.CHAINGUN();
-        const result = performHitscan(this.playerMobj, fireAngle, damage, 0.02, allMobjs);
+        const result = performHitscan(this.playerMobj, fireAngle, damage, 0.02, allMobjs, this.mapData);
 
         if (result?.hit && result.target) {
           damageActor(result.target, result.damage, this.playerMobj);
           console.log(`Chaingun hit for ${result.damage} damage!`);
         }
-
-        // Consume ammo
-        if (this.playerMobj.player.ammo) {
-          this.playerMobj.player.ammo.bullets = Math.max(0, this.playerMobj.player.ammo.bullets - 1);
-        }
+        consumeWeaponAmmo(this.playerMobj, weapon.currentWeapon);
       } else if (weapon.currentWeapon === WeaponType.FIST) {
         // Melee attack - check close range
         const meleeRange = 64; // DOOM's melee range
@@ -459,6 +517,13 @@ class DoomGame {
           damageActor(closestTarget, damage, this.playerMobj);
           console.log(`Fist hit for ${damage} damage!`);
         }
+      } else if (weapon.currentWeapon === WeaponType.ROCKET_LAUNCHER) {
+        const damage = WeaponDamage.ROCKET;
+        const result = performHitscan(this.playerMobj, fireAngle, damage, 0, allMobjs, this.mapData);
+        if (result?.hit && result.target) {
+          damageActor(result.target, result.damage, this.playerMobj);
+        }
+        consumeWeaponAmmo(this.playerMobj, weapon.currentWeapon);
       }
     }
   }

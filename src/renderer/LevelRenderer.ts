@@ -5,6 +5,7 @@
 
 import * as THREE from 'three';
 import type { MapData } from '../level/types';
+import { findSectorAtPoint } from '../level';
 import type { WADReader } from '../wad';
 import { WallBuilder } from './WallBuilder';
 import { SectorBuilder } from './SectorBuilder';
@@ -12,7 +13,7 @@ import { TextureManager } from './TextureManager';
 import { SkyRenderer } from './SkyRenderer';
 import { BSPRenderer } from './BSPRenderer';
 import { SpriteRenderer } from './SpriteRenderer';
-import { ThingSpawner } from '../game/ThingSpawner';
+import type { Mobj } from '../game';
 
 export class LevelRenderer {
   private scene: THREE.Scene;
@@ -23,9 +24,6 @@ export class LevelRenderer {
   private wallMeshes: THREE.Mesh[];
   private useBSPCulling: boolean = true;
   private spriteRenderer: SpriteRenderer;
-  private thingSpawner: ThingSpawner;
-  private wad: WADReader;
-  private palette: Uint8ClampedArray;
   private skyRenderer: SkyRenderer;
 
   constructor(
@@ -35,15 +33,12 @@ export class LevelRenderer {
     mapData: MapData
   ) {
     this.scene = scene;
-    this.wad = wad;
-    this.palette = palette;
     this.textureManager = new TextureManager(wad, palette);
     this.mapData = mapData;
     this.bspRenderer = new BSPRenderer(mapData);
     this.sectorMeshes = new Map();
     this.wallMeshes = [];
     this.spriteRenderer = new SpriteRenderer(scene, wad, palette);
-    this.thingSpawner = new ThingSpawner();
     this.skyRenderer = new SkyRenderer();
   }
 
@@ -112,40 +107,6 @@ export class LevelRenderer {
 
     console.log('Level geometry complete');
     console.log(`BSP culling: ${this.useBSPCulling ? 'enabled' : 'disabled'}`);
-
-    // Spawn things (items, monsters, decorations)
-    this.spawnThings();
-  }
-
-  /**
-   * Spawn all things from map data
-   */
-  private spawnThings(): void {
-    console.log('Spawning things...');
-
-    const spawnedThings = this.thingSpawner.spawnThings(this.mapData);
-
-    // Create sprites for spawned things
-    for (const spawned of spawnedThings) {
-      // Set thing z position to floor height
-      // For now, assume floor height of 0 (will be improved with sector detection)
-      spawned.mobj.z = 0;
-      spawned.mobj.floorz = 0;
-      spawned.mobj.ceilingz = 128 << 16;
-
-      // Add sprite to scene
-      this.spriteRenderer.addSprite(
-        spawned.mobj,
-        spawned.spriteName,
-        spawned.frame,
-        0 // rotation 0 for now
-      );
-
-      // Apply sector lighting (using default 160 for now)
-      this.spriteRenderer.applySectorLighting(spawned.mobj, 160);
-    }
-
-    console.log(`Spawned ${spawnedThings.length} things`);
   }
 
   /**
@@ -231,54 +192,6 @@ export class LevelRenderer {
    * Find which sector contains a given point (x, y)
    * Uses a simple approach: check all linedefs and build sector boundaries
    */
-  private findSectorAtPoint(x: number, y: number): number | null {
-    // Try each sector to see if point is inside
-    for (let sectorIdx = 0; sectorIdx < this.mapData.sectors.length; sectorIdx++) {
-      // Find all linedefs that reference this sector
-      const sectorLines: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
-
-      for (let i = 0; i < this.mapData.linedefs.length; i++) {
-        const linedef = this.mapData.linedefs[i];
-        const frontSide = linedef.sidenum[0];
-        const backSide = linedef.sidenum[1];
-
-        // Check if this linedef's front or back side references our sector
-        if (frontSide !== -1 && this.mapData.sidedefs[frontSide].sector === sectorIdx) {
-          const v1 = this.mapData.vertexes[linedef.v1];
-          const v2 = this.mapData.vertexes[linedef.v2];
-          sectorLines.push({ x1: v1.x, y1: v1.y, x2: v2.x, y2: v2.y });
-        } else if (backSide !== -1 && this.mapData.sidedefs[backSide].sector === sectorIdx) {
-          const v1 = this.mapData.vertexes[linedef.v1];
-          const v2 = this.mapData.vertexes[linedef.v2];
-          sectorLines.push({ x1: v1.x, y1: v1.y, x2: v2.x, y2: v2.y });
-        }
-      }
-
-      // Point-in-polygon test using ray casting algorithm
-      if (sectorLines.length > 0) {
-        let inside = false;
-        for (const line of sectorLines) {
-          // Ray casting: count intersections with a ray going right from point
-          if ((line.y1 > y) !== (line.y2 > y)) {
-            const intersectX = (line.x2 - line.x1) * (y - line.y1) / (line.y2 - line.y1) + line.x1;
-            if (x < intersectX) {
-              inside = !inside;
-            }
-          }
-        }
-
-        if (inside) {
-          return sectorIdx;
-        }
-      }
-    }
-
-    return null;
-  }
-
-  /**
-   * Find player start position
-   */
   getPlayerStart(): { x: number; y: number; z: number; angle: number; floorz: number; ceilingz: number } | null {
     // Player 1 start is thing type 1
     const playerThing = this.mapData.things.find(thing => thing.type === 1);
@@ -289,11 +202,11 @@ export class LevelRenderer {
     }
 
     // Find the sector the player is in to get floor height
-    const sectorIdx = this.findSectorAtPoint(playerThing.x, playerThing.y);
+    const sectorIdx = findSectorAtPoint(playerThing.x, playerThing.y, this.mapData);
 
     let floorHeight = 0; // Default floor height
     let ceilingHeight = 128; // Default ceiling height
-    if (sectorIdx !== null) {
+    if (sectorIdx >= 0) {
       const sector = this.mapData.sectors[sectorIdx];
       floorHeight = sector.floorheight;
       ceilingHeight = sector.ceilingheight;
@@ -321,6 +234,37 @@ export class LevelRenderer {
     return this.spriteRenderer;
   }
 
+  syncWorldMobjs(mobjs: Mobj[]): void {
+    const activeMobjs = new Set<Mobj>();
+
+    for (const mobj of mobjs) {
+      if (!mobj.sprite || mobj.removed) {
+        continue;
+      }
+
+      activeMobjs.add(mobj);
+
+      if (!this.spriteRenderer.hasSprite(mobj)) {
+        this.spriteRenderer.addSprite(
+          mobj,
+          mobj.sprite,
+          mobj.frame ?? 'A',
+          mobj.rotation ?? 0
+        );
+      }
+
+      if (typeof mobj.sectorIndex === 'number' && this.mapData.sectors[mobj.sectorIndex]) {
+        this.spriteRenderer.applySectorLighting(mobj, this.mapData.sectors[mobj.sectorIndex].lightlevel);
+      }
+    }
+
+    for (const renderedMobj of this.spriteRenderer.getMobjs()) {
+      if (!activeMobjs.has(renderedMobj) || renderedMobj.removed) {
+        this.spriteRenderer.removeSprite(renderedMobj);
+      }
+    }
+  }
+
   /**
    * Update sector ceiling height in real-time
    * Called when doors open/close
@@ -342,7 +286,6 @@ export class LevelRenderer {
       const sector = this.mapData.sectors[sectorIndex];
 
       // Convert to three.js coordinates
-      const floorY = sector.floorheight;
       const expectedCeilingY = sector.ceilingheight;
 
       // If this mesh's Y is close to the old ceiling height, it's the ceiling mesh

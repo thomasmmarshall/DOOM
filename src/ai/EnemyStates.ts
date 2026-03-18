@@ -108,7 +108,7 @@ export function AI_Chase(enemy: Mobj, enemyAI: EnemyAI): void {
 /**
  * AI Pain - React to damage
  */
-export function AI_Pain(enemy: Mobj, enemyAI: EnemyAI): void {
+export function AI_Pain(_enemy: Mobj, enemyAI: EnemyAI): void {
   // Pain state is temporary, return to chase after a few ticks
   enemyAI.reactionTime = 8; // Pain animation lasts ~8 ticks
 

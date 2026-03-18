@@ -15,7 +15,6 @@ import type {
   MapSubSector,
   MapNode,
 } from './types';
-import { NF_SUBSECTOR } from './types';
 import type { LumpInfo } from '../wad';
 
 export class MapParser {

@@ -104,11 +104,11 @@ export class InputManager {
     }
 
     // Buttons
-    if (this.keys.has('Space') || this.keys.has('ControlLeft') || this.keys.has('Mouse0')) {
+    if (this.keys.has('ControlLeft') || this.keys.has('ControlRight') || this.keys.has('Mouse0')) {
       cmd.buttons |= Button.ATTACK;
     }
 
-    if (this.keys.has('KeyE') || this.keys.has('Mouse2')) {
+    if (this.keys.has('Space') || this.keys.has('KeyE') || this.keys.has('Mouse2')) {
       cmd.buttons |= Button.USE;
     }
 

@@ -5,6 +5,7 @@
  */
 
 import type { Fixed } from '../core';
+import { MobjFlags } from './mobj';
 
 /**
  * Thing type enumeration
@@ -111,6 +112,12 @@ export interface ThingInfo {
   radius: Fixed;
   height: Fixed;
   flags: number;
+  health: number;
+  frame?: string;
+  rotation?: number;
+  countsTowardKill?: boolean;
+  countsTowardItem?: boolean;
+  painChance?: number;
   category: 'monster' | 'weapon' | 'ammo' | 'health' | 'powerup' | 'key' | 'decoration' | 'player';
 }
 
@@ -126,6 +133,7 @@ export const THING_INFO: Map<number, ThingInfo> = new Map([
     radius: 16 << 16,
     height: 56 << 16,
     flags: 0,
+    health: 100,
     category: 'player',
   }],
 
@@ -135,16 +143,30 @@ export const THING_INFO: Map<number, ThingInfo> = new Map([
     spriteName: 'SHOT',
     radius: 20 << 16,
     height: 16 << 16,
-    flags: 0,
+    flags: MobjFlags.SPECIAL | MobjFlags.COUNTITEM,
+    health: 1,
     category: 'weapon',
+    countsTowardItem: true,
   }],
   [ThingType.CHAINGUN, {
     type: ThingType.CHAINGUN,
     spriteName: 'MGUN',
     radius: 20 << 16,
     height: 16 << 16,
-    flags: 0,
+    flags: MobjFlags.SPECIAL | MobjFlags.COUNTITEM,
+    health: 1,
     category: 'weapon',
+    countsTowardItem: true,
+  }],
+  [ThingType.ROCKET_LAUNCHER, {
+    type: ThingType.ROCKET_LAUNCHER,
+    spriteName: 'LAUN',
+    radius: 20 << 16,
+    height: 16 << 16,
+    flags: MobjFlags.SPECIAL | MobjFlags.COUNTITEM,
+    health: 1,
+    category: 'weapon',
+    countsTowardItem: true,
   }],
 
   // Ammo
@@ -153,16 +175,60 @@ export const THING_INFO: Map<number, ThingInfo> = new Map([
     spriteName: 'CLIP',
     radius: 20 << 16,
     height: 16 << 16,
-    flags: 0,
+    flags: MobjFlags.SPECIAL | MobjFlags.COUNTITEM,
+    health: 1,
     category: 'ammo',
+    countsTowardItem: true,
   }],
   [ThingType.SHELLS, {
     type: ThingType.SHELLS,
     spriteName: 'SHEL',
     radius: 20 << 16,
     height: 16 << 16,
-    flags: 0,
+    flags: MobjFlags.SPECIAL | MobjFlags.COUNTITEM,
+    health: 1,
     category: 'ammo',
+    countsTowardItem: true,
+  }],
+  [ThingType.ROCKET, {
+    type: ThingType.ROCKET,
+    spriteName: 'ROCK',
+    radius: 20 << 16,
+    height: 16 << 16,
+    flags: MobjFlags.SPECIAL | MobjFlags.COUNTITEM,
+    health: 1,
+    category: 'ammo',
+    countsTowardItem: true,
+  }],
+  [ThingType.AMMO_BOX, {
+    type: ThingType.AMMO_BOX,
+    spriteName: 'AMMO',
+    radius: 20 << 16,
+    height: 16 << 16,
+    flags: MobjFlags.SPECIAL | MobjFlags.COUNTITEM,
+    health: 1,
+    category: 'ammo',
+    countsTowardItem: true,
+  }],
+  [ThingType.SHELL_BOX, {
+    type: ThingType.SHELL_BOX,
+    spriteName: 'SBOX',
+    radius: 20 << 16,
+    height: 16 << 16,
+    flags: MobjFlags.SPECIAL | MobjFlags.COUNTITEM,
+    health: 1,
+    category: 'ammo',
+    countsTowardItem: true,
+  }],
+  [ThingType.ROCKET_BOX, {
+    type: ThingType.ROCKET_BOX,
+    spriteName: 'BROK',
+    radius: 20 << 16,
+    height: 16 << 16,
+    flags: MobjFlags.SPECIAL | MobjFlags.COUNTITEM,
+    health: 1,
+    category: 'ammo',
+    countsTowardItem: true,
   }],
 
   // Health
@@ -171,16 +237,40 @@ export const THING_INFO: Map<number, ThingInfo> = new Map([
     spriteName: 'STIM',
     radius: 20 << 16,
     height: 16 << 16,
-    flags: 0,
+    flags: MobjFlags.SPECIAL | MobjFlags.COUNTITEM,
+    health: 1,
     category: 'health',
+    countsTowardItem: true,
   }],
   [ThingType.MEDIKIT, {
     type: ThingType.MEDIKIT,
     spriteName: 'MEDI',
     radius: 20 << 16,
     height: 16 << 16,
-    flags: 0,
+    flags: MobjFlags.SPECIAL | MobjFlags.COUNTITEM,
+    health: 1,
     category: 'health',
+    countsTowardItem: true,
+  }],
+  [ThingType.HEALTH_BONUS, {
+    type: ThingType.HEALTH_BONUS,
+    spriteName: 'BON1',
+    radius: 20 << 16,
+    height: 16 << 16,
+    flags: MobjFlags.SPECIAL | MobjFlags.COUNTITEM,
+    health: 1,
+    category: 'health',
+    countsTowardItem: true,
+  }],
+  [ThingType.ARMOR_BONUS, {
+    type: ThingType.ARMOR_BONUS,
+    spriteName: 'BON2',
+    radius: 20 << 16,
+    height: 16 << 16,
+    flags: MobjFlags.SPECIAL | MobjFlags.COUNTITEM,
+    health: 1,
+    category: 'health',
+    countsTowardItem: true,
   }],
 
   // Armor
@@ -189,16 +279,20 @@ export const THING_INFO: Map<number, ThingInfo> = new Map([
     spriteName: 'ARM1',
     radius: 20 << 16,
     height: 16 << 16,
-    flags: 0,
+    flags: MobjFlags.SPECIAL | MobjFlags.COUNTITEM,
+    health: 1,
     category: 'health',
+    countsTowardItem: true,
   }],
   [ThingType.BLUE_ARMOR, {
     type: ThingType.BLUE_ARMOR,
     spriteName: 'ARM2',
     radius: 20 << 16,
     height: 16 << 16,
-    flags: 0,
+    flags: MobjFlags.SPECIAL | MobjFlags.COUNTITEM,
+    health: 1,
     category: 'health',
+    countsTowardItem: true,
   }],
 
   // Keys
@@ -207,24 +301,30 @@ export const THING_INFO: Map<number, ThingInfo> = new Map([
     spriteName: 'BKEY',
     radius: 20 << 16,
     height: 16 << 16,
-    flags: 0,
+    flags: MobjFlags.SPECIAL | MobjFlags.COUNTITEM,
+    health: 1,
     category: 'key',
+    countsTowardItem: true,
   }],
   [ThingType.YELLOW_KEYCARD, {
     type: ThingType.YELLOW_KEYCARD,
     spriteName: 'YKEY',
     radius: 20 << 16,
     height: 16 << 16,
-    flags: 0,
+    flags: MobjFlags.SPECIAL | MobjFlags.COUNTITEM,
+    health: 1,
     category: 'key',
+    countsTowardItem: true,
   }],
   [ThingType.RED_KEYCARD, {
     type: ThingType.RED_KEYCARD,
     spriteName: 'RKEY',
     radius: 20 << 16,
     height: 16 << 16,
-    flags: 0,
+    flags: MobjFlags.SPECIAL | MobjFlags.COUNTITEM,
+    health: 1,
     category: 'key',
+    countsTowardItem: true,
   }],
 
   // Monsters
@@ -233,40 +333,55 @@ export const THING_INFO: Map<number, ThingInfo> = new Map([
     spriteName: 'TROO',
     radius: 20 << 16,
     height: 56 << 16,
-    flags: 0,
+    flags: MobjFlags.SOLID | MobjFlags.SHOOTABLE | MobjFlags.COUNTKILL,
+    health: 60,
     category: 'monster',
+    countsTowardKill: true,
+    painChance: 200,
   }],
   [ThingType.ZOMBIE, {
     type: ThingType.ZOMBIE,
     spriteName: 'POSS',
     radius: 20 << 16,
     height: 56 << 16,
-    flags: 0,
+    flags: MobjFlags.SOLID | MobjFlags.SHOOTABLE | MobjFlags.COUNTKILL,
+    health: 20,
     category: 'monster',
+    countsTowardKill: true,
+    painChance: 200,
   }],
   [ThingType.SHOTGUN_GUY, {
     type: ThingType.SHOTGUN_GUY,
     spriteName: 'SPOS',
     radius: 20 << 16,
     height: 56 << 16,
-    flags: 0,
+    flags: MobjFlags.SOLID | MobjFlags.SHOOTABLE | MobjFlags.COUNTKILL,
+    health: 30,
     category: 'monster',
+    countsTowardKill: true,
+    painChance: 170,
   }],
   [ThingType.DEMON, {
     type: ThingType.DEMON,
     spriteName: 'SARG',
     radius: 30 << 16,
     height: 56 << 16,
-    flags: 0,
+    flags: MobjFlags.SOLID | MobjFlags.SHOOTABLE | MobjFlags.COUNTKILL,
+    health: 150,
     category: 'monster',
+    countsTowardKill: true,
+    painChance: 180,
   }],
   [ThingType.BARON, {
     type: ThingType.BARON,
     spriteName: 'BOSS',
     radius: 24 << 16,
     height: 64 << 16,
-    flags: 0,
+    flags: MobjFlags.SOLID | MobjFlags.SHOOTABLE | MobjFlags.COUNTKILL,
+    health: 1000,
     category: 'monster',
+    countsTowardKill: true,
+    painChance: 50,
   }],
 
   // Decorations
@@ -275,15 +390,18 @@ export const THING_INFO: Map<number, ThingInfo> = new Map([
     spriteName: 'BAR1',
     radius: 10 << 16,
     height: 42 << 16,
-    flags: 0,
+    flags: MobjFlags.SOLID | MobjFlags.SHOOTABLE | MobjFlags.NOBLOOD,
+    health: 20,
     category: 'decoration',
+    painChance: 255,
   }],
   [ThingType.FLOOR_LAMP, {
     type: ThingType.FLOOR_LAMP,
     spriteName: 'COLU',
     radius: 16 << 16,
     height: 16 << 16,
-    flags: 0,
+    flags: MobjFlags.SOLID,
+    health: 1,
     category: 'decoration',
   }],
   [ThingType.TALL_GREEN_PILLAR, {
@@ -291,7 +409,8 @@ export const THING_INFO: Map<number, ThingInfo> = new Map([
     spriteName: 'COL1',
     radius: 16 << 16,
     height: 16 << 16,
-    flags: 0,
+    flags: MobjFlags.SOLID,
+    health: 1,
     category: 'decoration',
   }],
   [ThingType.SHORT_GREEN_PILLAR, {
@@ -299,7 +418,8 @@ export const THING_INFO: Map<number, ThingInfo> = new Map([
     spriteName: 'COL2',
     radius: 16 << 16,
     height: 16 << 16,
-    flags: 0,
+    flags: MobjFlags.SOLID,
+    health: 1,
     category: 'decoration',
   }],
 ]);

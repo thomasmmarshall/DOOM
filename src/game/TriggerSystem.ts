@@ -135,7 +135,7 @@ export class TriggerSystem {
   /**
    * Execute a line special
    */
-  private executeSpecial(line: MapLineDef, player: Mobj): boolean {
+  private executeSpecial(line: MapLineDef, _player: Mobj): boolean {
     const special = line.special;
 
     // Door specials
@@ -206,8 +206,6 @@ export class TriggerSystem {
    * Check if activation type matches line special
    */
   private checkActivationType(special: number, activation: ActivationType): boolean {
-    const prefix = Math.floor(special / 100);
-
     // DR = Door Repeatable (use)
     // W1/WR = Walk Once/Repeatable
     // S1/SR = Switch Once/Repeatable

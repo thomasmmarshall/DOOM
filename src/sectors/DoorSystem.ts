@@ -4,7 +4,7 @@
  * Inspired by DOOM's door mechanics
  */
 
-import type { MapData, MapSector } from '../level/types';
+import type { MapData } from '../level/types';
 import type { Fixed } from '../core';
 import { IntToFixed, FixedToFloat } from '../core/fixed';
 

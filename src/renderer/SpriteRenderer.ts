@@ -14,6 +14,7 @@ export interface SpriteObject {
   mobj: Mobj;
   sprite: THREE.Sprite;
   currentFrame: string;
+  lightLevel: number;
 }
 
 export class SpriteRenderer {
@@ -75,6 +76,7 @@ export class SpriteRenderer {
       mobj,
       sprite,
       currentFrame: fullName,
+      lightLevel: 255,
     };
 
     this.spriteObjects.set(mobj, spriteObject);
@@ -97,10 +99,17 @@ export class SpriteRenderer {
    * Update all sprite positions and rotations
    * Call this each frame
    */
-  update(cameraPosition: THREE.Vector3): void {
+  update(_cameraPosition: THREE.Vector3): void {
     for (const spriteObj of this.spriteObjects.values()) {
       // Update position
       this.updateSpritePosition(spriteObj.sprite, spriteObj.mobj);
+
+      const spriteName = spriteObj.mobj.sprite ?? spriteObj.currentFrame.slice(0, 4);
+      const frame = spriteObj.mobj.frame ?? 'A';
+      const rotation = spriteObj.mobj.rotation ?? 0;
+      this.updateSpriteFrame(spriteObj.mobj, spriteName, frame, rotation);
+
+      spriteObj.sprite.visible = !spriteObj.mobj.removed;
 
       // Sprites always face camera (billboard effect)
       // THREE.Sprite handles this automatically
@@ -161,6 +170,7 @@ export class SpriteRenderer {
     const brightness = Math.max(0.2, Math.min(1.0, lightLevel / 255));
     const material = spriteObj.sprite.material as THREE.SpriteMaterial;
     material.color.setRGB(brightness, brightness, brightness);
+    spriteObj.lightLevel = lightLevel;
   }
 
   /**
@@ -168,6 +178,14 @@ export class SpriteRenderer {
    */
   getSprite(mobj: Mobj): SpriteObject | null {
     return this.spriteObjects.get(mobj) || null;
+  }
+
+  hasSprite(mobj: Mobj): boolean {
+    return this.spriteObjects.has(mobj);
+  }
+
+  getMobjs(): Mobj[] {
+    return [...this.spriteObjects.keys()];
   }
 
   /**

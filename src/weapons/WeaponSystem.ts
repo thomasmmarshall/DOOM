@@ -6,8 +6,9 @@
 
 import type { Mobj } from '../game/mobj';
 import { MobjFlags } from '../game/mobj';
-import type { Fixed } from '../core';
-import { FixedToFloat, IntToFixed } from '../core/fixed';
+import { FixedToFloat } from '../core/fixed';
+import type { MapData } from '../level/types';
+import { checkLineOfSight } from '../physics/LineOfSight';
 
 /**
  * Weapon types
@@ -38,7 +39,7 @@ export enum WeaponState {
  */
 export interface WeaponInfo {
   type: WeaponType;
-  ammoType?: string;
+  ammoType?: 'bullets' | 'shells' | 'rockets' | 'cells';
   ammoPerShot: number;
   damage: number;
   fireDelay: number; // Ticks between shots
@@ -89,6 +90,14 @@ export const WEAPON_INFO: Map<WeaponType, WeaponInfo> = new Map([
     damage: 15,
     fireDelay: 2,
     sprite: 'CHGG',
+  }],
+  [WeaponType.ROCKET_LAUNCHER, {
+    type: WeaponType.ROCKET_LAUNCHER,
+    ammoType: 'rockets',
+    ammoPerShot: 1,
+    damage: 20,
+    fireDelay: 24,
+    sprite: 'MISG',
   }],
 ]);
 
@@ -149,7 +158,9 @@ export function fireWeapon(weapon: PlayerWeapon, player: Mobj): boolean {
   const info = WEAPON_INFO.get(weapon.currentWeapon);
   if (!info) return false;
 
-  // TODO: Check ammo
+  if (!canPlayerUseWeapon(player, weapon.currentWeapon)) {
+    return false;
+  }
 
   // Set firing state
   weapon.state = WeaponState.FIRING;
@@ -170,6 +181,48 @@ export function switchWeapon(weapon: PlayerWeapon, newWeapon: WeaponType): void 
   weapon.state = WeaponState.LOWERING;
 }
 
+export function canPlayerUseWeapon(player: Mobj, weaponType: WeaponType): boolean {
+  if (!player.player) {
+    return false;
+  }
+
+  if (!player.player.weapons[weaponType]) {
+    return false;
+  }
+
+  const info = WEAPON_INFO.get(weaponType);
+  if (!info?.ammoType) {
+    return true;
+  }
+
+  return player.player.ammo[info.ammoType] >= info.ammoPerShot;
+}
+
+export function switchPlayerWeapon(player: Mobj, newWeapon: WeaponType): boolean {
+  if (!player.player?.weapon) {
+    return false;
+  }
+
+  if (!canPlayerUseWeapon(player, newWeapon)) {
+    return false;
+  }
+
+  switchWeapon(player.player.weapon, newWeapon);
+  return true;
+}
+
+export function consumeWeaponAmmo(player: Mobj, weaponType: WeaponType): void {
+  const info = WEAPON_INFO.get(weaponType);
+  if (!info?.ammoType || !player.player) {
+    return;
+  }
+
+  player.player.ammo[info.ammoType] = Math.max(
+    0,
+    player.player.ammo[info.ammoType] - info.ammoPerShot
+  );
+}
+
 /**
  * Perform hitscan attack
  * Instant-hit weapon like pistol, shotgun, chaingun
@@ -185,7 +238,8 @@ export function performHitscan(
   angle: number,
   damage: number,
   spread: number = 0,
-  allMobjs: Mobj[] = []
+  allMobjs: Mobj[] = [],
+  mapData?: MapData
 ): HitscanResult | null {
   // Calculate direction with spread
   const finalAngle = angle + (Math.random() - 0.5) * spread;
@@ -237,6 +291,9 @@ export function performHitscan(
     if (angleDiff < angularSize * 2) {
       // Check vertical alignment
       if (startZ >= targetZ && startZ <= targetZ + targetHeight) {
+        if (mapData && !checkLineOfSight(source, target, mapData)) {
+          continue;
+        }
         closestDist = dist;
         closestTarget = target;
       }

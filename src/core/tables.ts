@@ -5,7 +5,7 @@
  * DOOM uses Binary Angle Measurement (BAM) and lookup tables for fast trig.
  */
 
-import { Fixed, FloatToFixed, FRACUNIT } from './fixed';
+import { Fixed, FloatToFixed } from './fixed';
 
 // Constants from tables.h
 export const FINEANGLES = 8192;

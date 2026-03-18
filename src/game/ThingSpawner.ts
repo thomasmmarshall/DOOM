@@ -8,12 +8,17 @@ import type { MapThing, MapData } from '../level/types';
 import type { Mobj } from './mobj';
 import { IntToFixed, DegreesToAngle } from '../core';
 import { getThingInfo } from './thinginfo';
+import { findSectorAtPoint, MTF_AMBUSH } from '../level';
+import { MobjFlags } from './mobj';
 
 export interface SpawnedThing {
   thing: MapThing;
   mobj: Mobj;
   spriteName: string;
   frame: string;
+  rotation: number;
+  sectorIndex: number;
+  lightLevel: number;
 }
 
 export class ThingSpawner {
@@ -37,7 +42,7 @@ export class ThingSpawner {
         continue;
       }
 
-      const spawned = this.spawnThing(thing);
+      const spawned = this.spawnThing(thing, mapData);
       if (spawned) {
         this.spawnedThings.push(spawned);
       }
@@ -52,40 +57,60 @@ export class ThingSpawner {
    * @param thing - Map thing data
    * @returns SpawnedThing or null if type not recognized
    */
-  private spawnThing(thing: MapThing): SpawnedThing | null {
+  private spawnThing(thing: MapThing, mapData: MapData): SpawnedThing | null {
     const info = getThingInfo(thing.type);
     if (!info) {
       // Unknown thing type - skip silently (many thing types not yet implemented)
       return null;
     }
 
+    const sectorIndex = findSectorAtPoint(thing.x, thing.y, mapData);
+    const sector = sectorIndex >= 0 ? mapData.sectors[sectorIndex] : null;
+    const floorHeight = sector?.floorheight ?? 0;
+    const ceilingHeight = sector?.ceilingheight ?? 128;
+    const spawnOnCeiling = (info.flags & MobjFlags.SPAWNCEILING) !== 0;
+    const z = spawnOnCeiling ? ceilingHeight - (info.height >> 16) : floorHeight;
+    const flags = (thing.options & MTF_AMBUSH) !== 0
+      ? (info.flags | MobjFlags.AMBUSH)
+      : info.flags;
+
     // Create map object
     const mobj: Mobj = {
       x: IntToFixed(thing.x),
       y: IntToFixed(thing.y),
-      z: 0, // Will be set to floor height
+      z: IntToFixed(z),
       angle: DegreesToAngle(thing.angle),
       momx: 0,
       momy: 0,
       momz: 0,
       radius: info.radius,
       height: info.height,
-      floorz: 0,
-      ceilingz: 0,
-      flags: info.flags,
-      health: 100,
+      floorz: IntToFixed(floorHeight),
+      ceilingz: IntToFixed(ceilingHeight),
+      flags,
+      health: info.health,
       type: info.type,
+      sectorIndex: sectorIndex >= 0 ? sectorIndex : undefined,
+      sprite: info.spriteName,
+      frame: info.frame ?? 'A',
+      rotation: info.rotation ?? 0,
+      countsTowardKill: info.countsTowardKill,
+      countsTowardItem: info.countsTowardItem,
+      painChance: info.painChance,
     };
 
-    // Default sprite frame is 'A' with rotation 0
     const spriteName = info.spriteName;
-    const frame = 'A';
+    const frame = info.frame ?? 'A';
+    const rotation = info.rotation ?? 0;
 
     return {
       thing,
       mobj,
       spriteName,
       frame,
+      rotation,
+      sectorIndex,
+      lightLevel: sector?.lightlevel ?? 160,
     };
   }
 

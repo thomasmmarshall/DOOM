@@ -7,7 +7,7 @@ import type { Mobj } from '../game/mobj';
 import type { TicCmd } from '../input';
 import type { Fixed, Angle } from '../core';
 import { FixedMul, FRACUNIT } from '../core/fixed';
-import { FineSine, FineCosine, ANGLETOFINESHIFT, ANG90 } from '../core/tables';
+import { FineSine, FineCosine, ANG90 } from '../core/tables';
 import {
   VIEWHEIGHT,
   MAXBOB,
@@ -23,8 +23,6 @@ import {
  * Based on P_Thrust from p_user.c
  */
 export function applyThrust(mobj: Mobj, angle: Angle, move: Fixed): void {
-  const fineAngle = angle >> ANGLETOFINESHIFT;
-
   mobj.momx += FixedMul(move, FineCosine(angle));
   mobj.momy += FixedMul(move, FineSine(angle));
 }

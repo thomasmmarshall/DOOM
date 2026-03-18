@@ -73,6 +73,14 @@ export interface Mobj {
   flags: number; // MobjFlags
   health: number;
   type: number; // Thing type number
+  sectorIndex?: number;
+  sprite?: string;
+  frame?: string;
+  rotation?: number;
+  removed?: boolean;
+  countsTowardKill?: boolean;
+  countsTowardItem?: boolean;
+  painChance?: number;
 
   // Player-specific (only valid if type === PLAYER)
   player?: PlayerState;
@@ -90,12 +98,33 @@ export interface PlayerState {
   weapon?: any; // PlayerWeapon from weapons module
 
   // Ammo
-  ammo?: {
+  ammo: {
     bullets: number;
     shells: number;
     rockets: number;
     cells: number;
   };
+  maxAmmo: {
+    bullets: number;
+    shells: number;
+    rockets: number;
+    cells: number;
+  };
+  weapons: boolean[];
+  armor: number;
+  armorType: 0 | 1 | 2;
+  keys: {
+    blueCard: boolean;
+    yellowCard: boolean;
+    redCard: boolean;
+    blueSkull: boolean;
+    yellowSkull: boolean;
+    redSkull: boolean;
+  };
+  powerups: Record<string, number>;
+  message: string;
+  damageCount: number;
+  bonusCount: number;
 }
 
 /**
@@ -117,6 +146,9 @@ export function createPlayerMobj(x: Fixed, y: Fixed, z: Fixed, angle: Angle): Mo
     flags: MobjFlags.SOLID | MobjFlags.SHOOTABLE | MobjFlags.DROPOFF | MobjFlags.PICKUP | MobjFlags.SLIDE,
     health: 100,
     type: MobjType.PLAYER,
+    sprite: 'PLAY',
+    frame: 'A',
+    rotation: 0,
     player: {
       viewheight: 41 << 16, // 41 units view height
       deltaviewheight: 0,
@@ -127,6 +159,27 @@ export function createPlayerMobj(x: Fixed, y: Fixed, z: Fixed, angle: Angle): Mo
         rockets: 0,
         cells: 0,
       },
+      maxAmmo: {
+        bullets: 200,
+        shells: 50,
+        rockets: 50,
+        cells: 300,
+      },
+      weapons: [true, true, false, false, false, false, false, false],
+      armor: 0,
+      armorType: 0,
+      keys: {
+        blueCard: false,
+        yellowCard: false,
+        redCard: false,
+        blueSkull: false,
+        yellowSkull: false,
+        redSkull: false,
+      },
+      powerups: {},
+      message: '',
+      damageCount: 0,
+      bonusCount: 0,
     },
   };
 }

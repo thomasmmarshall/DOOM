@@ -5,7 +5,7 @@
  * Reads DOOM WAD files and provides access to lumps.
  */
 
-import type { WadInfo, FileLump, LumpInfo } from './types';
+import type { WadInfo, LumpInfo } from './types';
 
 export class WADReader {
   private buffer: ArrayBuffer;

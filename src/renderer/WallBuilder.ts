@@ -5,7 +5,7 @@
  */
 
 import * as THREE from 'three';
-import type { MapData, MapLineDef, MapSideDef, MapSector } from '../level/types';
+import type { MapData } from '../level/types';
 import { ML_TWOSIDED, ML_DONTPEGTOP, ML_DONTPEGBOTTOM } from '../level/types';
 import { doomToThree } from '../core';
 
@@ -127,8 +127,8 @@ export class WallBuilder {
     lightLevel: number,
     textureOffsetX: number = 0,
     textureOffsetY: number = 0,
-    unpeg: boolean = false,
-    masked: boolean = false
+    _unpeg: boolean = false,
+    _masked: boolean = false
   ): WallSegment {
     // Convert DOOM coordinates to three.js
     const p1 = doomToThree(x1, y1, bottomZ);

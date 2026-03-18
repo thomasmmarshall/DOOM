@@ -269,7 +269,6 @@ export class TextureManager {
       transparent: transparent,
       side: THREE.DoubleSide,
       depthWrite: !transparent,
-      colorSpace: THREE.SRGBColorSpace,
     });
 
     return material;
@@ -299,7 +298,6 @@ export class TextureManager {
       map: texture,
       color: new THREE.Color(brightness, brightness, brightness),
       side: THREE.DoubleSide,
-      colorSpace: THREE.SRGBColorSpace,
     });
 
     return material;

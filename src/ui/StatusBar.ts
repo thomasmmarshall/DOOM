@@ -26,6 +26,7 @@ export interface PlayerStats {
   weapons: boolean[]; // Index corresponds to weapon number
   currentWeapon: number;
   face: number; // Face state (0-42, different expressions)
+  message?: string;
 }
 
 export class StatusBar {
@@ -204,6 +205,12 @@ export class StatusBar {
     if (stats.keys.redCard || stats.keys.redSkull) {
       this.ctx.fillStyle = '#ff0000';
       this.ctx.fillRect(keyX, 22, 6, 6);
+    }
+
+    if (stats.message) {
+      this.ctx.fillStyle = '#ffd54a';
+      this.ctx.font = '8px monospace';
+      this.ctx.fillText(stats.message, 90, 30);
     }
   }
 

@@ -75,6 +75,20 @@ export class ThinkerManager {
     this.thinkerCount--;
   }
 
+  removeThinkerByMobj(mobj: Mobj): boolean {
+    let current = this.head;
+
+    while (current) {
+      if (current.mobj === mobj) {
+        this.removeThinker(current);
+        return true;
+      }
+      current = current.next;
+    }
+
+    return false;
+  }
+
   /**
    * Run all thinkers (called each game tick)
    * Based on P_RunThinkers from p_tick.c
