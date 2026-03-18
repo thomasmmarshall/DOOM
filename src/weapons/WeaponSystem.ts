@@ -9,6 +9,7 @@ import { MobjFlags } from '../game/mobj';
 import { FixedToFloat } from '../core/fixed';
 import type { MapData } from '../level/types';
 import { checkLineOfSight } from '../physics/LineOfSight';
+import { pRandom } from '../core';
 
 /**
  * Weapon types
@@ -242,7 +243,8 @@ export function performHitscan(
   mapData?: MapData
 ): HitscanResult | null {
   // Calculate direction with spread
-  const finalAngle = angle + (Math.random() - 0.5) * spread;
+  const spreadOffset = spread === 0 ? 0 : ((pRandom() - pRandom()) / 255) * spread;
+  const finalAngle = angle + spreadOffset;
 
   // Cast ray from source
   const range = 2048; // Maximum range

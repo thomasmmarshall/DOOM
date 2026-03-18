@@ -22,6 +22,7 @@ export class LevelRenderer {
   private bspRenderer: BSPRenderer;
   private sectorMeshes: Map<number, THREE.Mesh[]>; // sector index -> meshes
   private wallMeshes: THREE.Mesh[];
+  private wallMeshInfo: Array<{ mesh: THREE.Mesh; lineIndex: number; sideDefIndex: number; lightLevel: number }>;
   private useBSPCulling: boolean = true;
   private spriteRenderer: SpriteRenderer;
   private skyRenderer: SkyRenderer;
@@ -38,6 +39,7 @@ export class LevelRenderer {
     this.bspRenderer = new BSPRenderer(mapData);
     this.sectorMeshes = new Map();
     this.wallMeshes = [];
+    this.wallMeshInfo = [];
     this.spriteRenderer = new SpriteRenderer(scene, wad, palette);
     this.skyRenderer = new SkyRenderer();
   }
@@ -66,6 +68,12 @@ export class LevelRenderer {
       mesh.frustumCulled = false; // We'll handle culling with BSP
       this.scene.add(mesh);
       this.wallMeshes.push(mesh);
+      this.wallMeshInfo.push({
+        mesh,
+        lineIndex: wall.lineIndex,
+        sideDefIndex: wall.sideDefIndex,
+        lightLevel: wall.lightLevel,
+      });
     }
 
     // Build sectors (floors and ceilings)
@@ -234,6 +242,48 @@ export class LevelRenderer {
     return this.spriteRenderer;
   }
 
+  updateSectorLight(sectorIndex: number, lightLevel: number): void {
+    const meshes = this.sectorMeshes.get(sectorIndex);
+    if (meshes) {
+      const brightness = Math.max(0.25, Math.min(1.0, lightLevel / 255));
+      for (const mesh of meshes) {
+        const material = mesh.material as THREE.MeshBasicMaterial;
+        material.color.setRGB(brightness, brightness, brightness);
+      }
+    }
+
+    for (const info of this.wallMeshInfo) {
+      const line = this.mapData.linedefs[info.lineIndex];
+      const sideDef = this.mapData.sidedefs[info.sideDefIndex];
+      if (!line || !sideDef) {
+        continue;
+      }
+
+      const frontSector = this.mapData.sidedefs[line.sidenum[0]]?.sector;
+      const backSector = line.sidenum[1] !== -1 ? this.mapData.sidedefs[line.sidenum[1]]?.sector : undefined;
+      if (frontSector !== sectorIndex && backSector !== sectorIndex) {
+        continue;
+      }
+
+      const brightness = Math.max(0.25, Math.min(1.0, lightLevel / 255));
+      const material = info.mesh.material as THREE.MeshBasicMaterial;
+      material.color.setRGB(brightness, brightness, brightness);
+    }
+  }
+
+  updateAnimatedWallOffsets(): void {
+    for (const info of this.wallMeshInfo) {
+      const material = info.mesh.material as THREE.MeshBasicMaterial;
+      if (!material.map) {
+        continue;
+      }
+
+      const sidedef = this.mapData.sidedefs[info.sideDefIndex];
+      material.map.offset.x = sidedef.textureoffset / 64;
+      material.map.offset.y = -sidedef.rowoffset / 64;
+    }
+  }
+
   syncWorldMobjs(mobjs: Mobj[]): void {
     const activeMobjs = new Set<Mobj>();
 
@@ -269,7 +319,7 @@ export class LevelRenderer {
    * Update sector ceiling height in real-time
    * Called when doors open/close
    */
-  updateSectorCeiling(sectorIndex: number, newHeight: number): void {
+  updateSectorCeiling(sectorIndex: number, oldHeight: number, newHeight: number): void {
     const meshes = this.sectorMeshes.get(sectorIndex);
     if (!meshes) return;
 
@@ -283,13 +333,8 @@ export class LevelRenderer {
       // Check if this is a ceiling (meshes with Y > floor are ceilings)
       // We need to check the first vertex to determine if it's floor or ceiling
       const firstY = positionAttribute.getY(0);
-      const sector = this.mapData.sectors[sectorIndex];
-
-      // Convert to three.js coordinates
-      const expectedCeilingY = sector.ceilingheight;
-
       // If this mesh's Y is close to the old ceiling height, it's the ceiling mesh
-      if (Math.abs(firstY - expectedCeilingY) < 1) {
+      if (Math.abs(firstY - oldHeight) < 1) {
         // Update all Y coordinates to the new height
         for (let i = 0; i < positionAttribute.count; i++) {
           positionAttribute.setY(i, newHeight);
@@ -309,7 +354,7 @@ export class LevelRenderer {
    * Update sector floor height in real-time
    * Called when platforms move
    */
-  updateSectorFloor(sectorIndex: number, newHeight: number): void {
+  updateSectorFloor(sectorIndex: number, oldHeight: number, newHeight: number): void {
     const meshes = this.sectorMeshes.get(sectorIndex);
     if (!meshes) return;
 
@@ -322,12 +367,8 @@ export class LevelRenderer {
 
       // Check if this is a floor (meshes with Y ≈ floor height)
       const firstY = positionAttribute.getY(0);
-      const sector = this.mapData.sectors[sectorIndex];
-
-      const expectedFloorY = sector.floorheight;
-
       // If this mesh's Y is close to the old floor height, it's the floor mesh
-      if (Math.abs(firstY - expectedFloorY) < 1) {
+      if (Math.abs(firstY - oldHeight) < 1) {
         // Update all Y coordinates to the new height
         for (let i = 0; i < positionAttribute.count; i++) {
           positionAttribute.setY(i, newHeight);

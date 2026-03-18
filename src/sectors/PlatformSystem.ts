@@ -7,6 +7,7 @@
 import type { MapData } from '../level/types';
 import type { Fixed } from '../core';
 import { IntToFixed, FixedToFloat } from '../core/fixed';
+import { findLowestNeighborFloor, findNextHighestNeighborFloor } from './sectorHeights';
 
 /**
  * Platform state
@@ -26,6 +27,7 @@ export enum PlatformType {
   RAISE_AND_WAIT = 'RAISE_AND_WAIT',   // Raises, waits, lowers
   RAISE_TO_NEXT = 'RAISE_TO_NEXT',     // Raises to next floor height
   LOWER_AND_WAIT = 'LOWER_AND_WAIT',   // Lowers, waits, raises
+  TURBO_LOWER = 'TURBO_LOWER',         // Lowers to neighboring floor and stays
 }
 
 /**
@@ -45,7 +47,7 @@ export interface PlatformThinker {
 /**
  * Callback for when sector floor height changes
  */
-export type SectorFloorCallback = (sectorIndex: number, newHeight: number) => void;
+export type SectorFloorCallback = (sectorIndex: number, oldHeight: number, newHeight: number) => void;
 
 /**
  * Platform manager
@@ -77,14 +79,42 @@ export class PlatformManager {
     if (!sector) return false;
 
     const currentHeight = IntToFixed(sector.floorheight);
-    const lowHeight = currentHeight;
-    const highHeight = currentHeight + IntToFixed(64); // Rise 64 units
+    let lowHeight = currentHeight;
+    let highHeight = currentHeight;
+    let platformSpeed = speed;
+    let state = PlatformState.UP;
+
+    switch (type) {
+      case PlatformType.LOWER_AND_WAIT:
+        lowHeight = IntToFixed(findLowestNeighborFloor(this.mapData, sectorIndex));
+        highHeight = currentHeight;
+        platformSpeed = 4;
+        state = PlatformState.DOWN;
+        break;
+      case PlatformType.TURBO_LOWER:
+        lowHeight = IntToFixed(findLowestNeighborFloor(this.mapData, sectorIndex));
+        highHeight = currentHeight;
+        platformSpeed = 8;
+        state = PlatformState.DOWN;
+        break;
+      case PlatformType.RAISE_TO_NEXT:
+        lowHeight = currentHeight;
+        highHeight = IntToFixed(findNextHighestNeighborFloor(this.mapData, sectorIndex));
+        platformSpeed = 2;
+        state = PlatformState.UP;
+        break;
+      default:
+        lowHeight = currentHeight;
+        highHeight = currentHeight + IntToFixed(64);
+        state = PlatformState.UP;
+        break;
+    }
 
     const platform: PlatformThinker = {
       sectorIndex,
       type,
-      state: PlatformState.UP,
-      speed,
+      state,
+      speed: platformSpeed,
       lowHeight,
       highHeight,
       waitTimer: 0,
@@ -115,12 +145,13 @@ export class PlatformManager {
     switch (platform.state) {
       case PlatformState.UP:
         const newUpHeight = currentHeight + platform.speed;
+        const oldUpHeight = sector.floorheight;
 
         if (newUpHeight >= platform.highHeight) {
           const newHeight = FixedToFloat(platform.highHeight);
           sector.floorheight = newHeight;
           if (this.onFloorChange) {
-            this.onFloorChange(platform.sectorIndex, newHeight);
+            this.onFloorChange(platform.sectorIndex, oldUpHeight, newHeight);
           }
 
           if (platform.type === PlatformType.PERPETUAL_RAISE) {
@@ -134,22 +165,26 @@ export class PlatformManager {
           const newHeight = FixedToFloat(newUpHeight);
           sector.floorheight = newHeight;
           if (this.onFloorChange) {
-            this.onFloorChange(platform.sectorIndex, newHeight);
+            this.onFloorChange(platform.sectorIndex, oldUpHeight, newHeight);
           }
         }
         break;
 
       case PlatformState.DOWN:
         const newDownHeight = currentHeight - platform.speed;
+        const oldDownHeight = sector.floorheight;
 
         if (newDownHeight <= platform.lowHeight) {
           const newHeight = FixedToFloat(platform.lowHeight);
           sector.floorheight = newHeight;
           if (this.onFloorChange) {
-            this.onFloorChange(platform.sectorIndex, newHeight);
+            this.onFloorChange(platform.sectorIndex, oldDownHeight, newHeight);
           }
 
           if (platform.type === PlatformType.PERPETUAL_RAISE) {
+            platform.state = PlatformState.WAITING;
+            platform.waitTimer = platform.waitTime;
+          } else if (platform.type === PlatformType.LOWER_AND_WAIT) {
             platform.state = PlatformState.WAITING;
             platform.waitTimer = platform.waitTime;
           } else {
@@ -160,7 +195,7 @@ export class PlatformManager {
           const newHeight = FixedToFloat(newDownHeight);
           sector.floorheight = newHeight;
           if (this.onFloorChange) {
-            this.onFloorChange(platform.sectorIndex, newHeight);
+            this.onFloorChange(platform.sectorIndex, oldDownHeight, newHeight);
           }
         }
         break;

@@ -7,6 +7,7 @@
 import type { MapData, MapLineDef } from '../level/types';
 import type { DoorManager, DoorType } from '../sectors/DoorSystem';
 import type { PlatformManager, PlatformType } from '../sectors/PlatformSystem';
+import { findBackSectorForLine, findSectorsByTag } from '../sectors';
 import type { Mobj } from './mobj';
 import { FixedToFloat } from '../core/fixed';
 
@@ -40,6 +41,9 @@ export enum SpecialCategory {
 export const LineSpecials = {
   // Doors
   DR_DOOR: 1,              // Door Open Wait Close (DR)
+  S1_EXIT: 11,             // Exit level
+  W1_FLOOR_TURBO_LOWER: 36,
+  SCROLL_WALL: 48,
   W1_DOOR_OPEN: 2,         // Door Open Stay (W1)
   W1_DOOR_CLOSE: 3,        // Door Close Stay (W1)
   W1_DOOR_RAISE: 4,        // Door Open Wait Close (W1)
@@ -122,7 +126,7 @@ export class TriggerSystem {
     }
 
     // Execute the special
-    const success = this.executeSpecial(line, player);
+    const success = this.executeSpecial(lineIndex, line, player);
 
     // Mark as activated if once-only
     if (success && isOnceOnly) {
@@ -135,14 +139,16 @@ export class TriggerSystem {
   /**
    * Execute a line special
    */
-  private executeSpecial(line: MapLineDef, _player: Mobj): boolean {
+  private executeSpecial(lineIndex: number, line: MapLineDef, _player: Mobj): boolean {
     const special = line.special;
 
     // Door specials
     if (special === LineSpecials.DR_DOOR ||
         special === LineSpecials.W1_DOOR_RAISE ||
         special === LineSpecials.SR_DOOR_RAISE) {
-      return this.activateDoorByTag(line.tag, 'NORMAL');
+      return line.tag === 0
+        ? this.activateManualDoor(lineIndex, 'NORMAL')
+        : this.activateDoorByTag(line.tag, 'NORMAL');
     }
 
     if (special === LineSpecials.W1_DOOR_OPEN ||
@@ -162,8 +168,16 @@ export class TriggerSystem {
       return this.activatePlatformByTag(line.tag, 'LOWER_AND_WAIT');
     }
 
+    if (special === LineSpecials.W1_FLOOR_TURBO_LOWER) {
+      return this.activatePlatformByTag(line.tag, 'TURBO_LOWER');
+    }
+
     if (special === LineSpecials.SR_PLATFORM_PERPETUAL) {
       return this.activatePlatformByTag(line.tag, 'PERPETUAL_RAISE');
+    }
+
+    if (special === LineSpecials.S1_EXIT) {
+      return true;
     }
 
     console.warn(`Unhandled line special: ${special}`);
@@ -177,13 +191,20 @@ export class TriggerSystem {
     if (tag === 0) return false;
 
     let activated = false;
-    for (let i = 0; i < this.mapData.sectors.length; i++) {
-      if (this.mapData.sectors[i].tag === tag) {
-        const success = this.doorManager.activateDoor(i, doorType as DoorType);
-        if (success) activated = true;
-      }
+    for (const sectorIndex of findSectorsByTag(this.mapData, tag)) {
+      const success = this.doorManager.activateDoor(sectorIndex, doorType as DoorType);
+      if (success) activated = true;
     }
     return activated;
+  }
+
+  private activateManualDoor(lineIndex: number, doorType: string): boolean {
+    const sectorIndex = findBackSectorForLine(this.mapData, lineIndex);
+    if (sectorIndex === null) {
+      return false;
+    }
+
+    return this.doorManager.activateDoor(sectorIndex, doorType as DoorType);
   }
 
   /**
@@ -193,11 +214,9 @@ export class TriggerSystem {
     if (tag === 0) return false;
 
     let activated = false;
-    for (let i = 0; i < this.mapData.sectors.length; i++) {
-      if (this.mapData.sectors[i].tag === tag) {
-        const success = this.platformManager.activatePlatform(i, platformType as PlatformType);
-        if (success) activated = true;
-      }
+    for (const sectorIndex of findSectorsByTag(this.mapData, tag)) {
+      const success = this.platformManager.activatePlatform(sectorIndex, platformType as PlatformType);
+      if (success) activated = true;
     }
     return activated;
   }
@@ -211,10 +230,10 @@ export class TriggerSystem {
     // S1/SR = Switch Once/Repeatable
 
     // For simplicity, check first digit of special
-    if (special === 1) return activation === ActivationType.USE; // DR
+    if (special === 1 || special === 11) return activation === ActivationType.USE; // DR / Exit switch
 
     // W1/WR types (walk triggers)
-    const walkSpecials = [2, 3, 4, 10, 88];
+    const walkSpecials = [2, 3, 4, 10, 36, 48, 88];
     if (walkSpecials.includes(special)) {
       return activation === ActivationType.WALK;
     }
@@ -233,7 +252,7 @@ export class TriggerSystem {
    */
   private isOnceOnly(special: number): boolean {
     // W1 and S1 types are once-only
-    const onceOnlySpecials = [2, 3, 4, 10]; // W1 types
+    const onceOnlySpecials = [2, 3, 4, 10, 11, 36]; // W1/S1 types used in E1M1
     return onceOnlySpecials.includes(special);
   }
 

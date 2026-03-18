@@ -7,6 +7,7 @@
 import type { MapData } from '../level/types';
 import type { Fixed } from '../core';
 import { IntToFixed, FixedToFloat } from '../core/fixed';
+import { findLowestNeighborCeiling } from './sectorHeights';
 
 /**
  * Door state
@@ -46,7 +47,7 @@ export interface DoorThinker {
 /**
  * Callback for when sector ceiling height changes
  */
-export type SectorCeilingCallback = (sectorIndex: number, newHeight: number) => void;
+export type SectorCeilingCallback = (sectorIndex: number, oldHeight: number, newHeight: number) => void;
 
 /**
  * Active door registry
@@ -67,15 +68,20 @@ export class DoorManager {
    */
   activateDoor(sectorIndex: number, type: DoorType = DoorType.NORMAL): boolean {
     if (this.doors.has(sectorIndex)) {
-      return false; // Door already active
+      const activeDoor = this.doors.get(sectorIndex)!;
+      if (activeDoor.state === DoorState.CLOSING) {
+        activeDoor.state = DoorState.OPENING;
+        return true;
+      }
+      return false;
     }
 
     const sector = this.mapData.sectors[sectorIndex];
     if (!sector) return false;
 
     // Calculate door heights
-    const bottomHeight = IntToFixed(sector.floorheight);
-    const topHeight = IntToFixed(sector.floorheight + 128); // 128 units open
+    const bottomHeight = IntToFixed(sector.ceilingheight);
+    const topHeight = IntToFixed(findLowestNeighborCeiling(this.mapData, sectorIndex) - 4);
 
     // Door speed based on type
     let speed = 2; // Normal speed
@@ -122,13 +128,14 @@ export class DoorManager {
       case DoorState.OPENING:
         // Move ceiling up
         const newOpenHeight = currentHeight + door.speed;
+        const oldOpenHeight = sector.ceilingheight;
 
         if (newOpenHeight >= door.topHeight) {
           // Fully open
           const newHeight = FixedToFloat(door.topHeight);
           sector.ceilingheight = newHeight;
           if (this.onCeilingChange) {
-            this.onCeilingChange(door.sectorIndex, newHeight);
+            this.onCeilingChange(door.sectorIndex, oldOpenHeight, newHeight);
           }
 
           if (door.type === DoorType.OPEN_STAY) {
@@ -142,7 +149,7 @@ export class DoorManager {
           const newHeight = FixedToFloat(newOpenHeight);
           sector.ceilingheight = newHeight;
           if (this.onCeilingChange) {
-            this.onCeilingChange(door.sectorIndex, newHeight);
+            this.onCeilingChange(door.sectorIndex, oldOpenHeight, newHeight);
           }
         }
         break;
@@ -157,13 +164,14 @@ export class DoorManager {
       case DoorState.CLOSING:
         // Move ceiling down
         const newCloseHeight = currentHeight - door.speed;
+        const oldCloseHeight = sector.ceilingheight;
 
         if (newCloseHeight <= door.bottomHeight) {
           // Fully closed
           const newHeight = FixedToFloat(door.bottomHeight);
           sector.ceilingheight = newHeight;
           if (this.onCeilingChange) {
-            this.onCeilingChange(door.sectorIndex, newHeight);
+            this.onCeilingChange(door.sectorIndex, oldCloseHeight, newHeight);
           }
           door.state = DoorState.CLOSED;
           this.doors.delete(door.sectorIndex); // Remove - no longer active
@@ -171,7 +179,7 @@ export class DoorManager {
           const newHeight = FixedToFloat(newCloseHeight);
           sector.ceilingheight = newHeight;
           if (this.onCeilingChange) {
-            this.onCeilingChange(door.sectorIndex, newHeight);
+            this.onCeilingChange(door.sectorIndex, oldCloseHeight, newHeight);
           }
         }
         break;

@@ -35,6 +35,8 @@ export class StatusBar {
   private wad: WADReader;
   private palette: Uint8ClampedArray;
   private numberPatches: HTMLCanvasElement[] = [];
+  private statusBarPatch?: HTMLCanvasElement;
+  private facePatches: HTMLCanvasElement[] = [];
   private initialized: boolean = false;
 
   constructor(wad: WADReader, palette: Uint8ClampedArray) {
@@ -92,6 +94,18 @@ export class StatusBar {
   async init(): Promise<void> {
     if (this.initialized) return;
 
+    const statusBarData = this.wad.readLump('STBAR');
+    if (statusBarData) {
+      const decoded = PatchDecoder.decodePatch(statusBarData, this.palette);
+      this.statusBarPatch = document.createElement('canvas');
+      this.statusBarPatch.width = decoded.width;
+      this.statusBarPatch.height = decoded.height;
+      const ctx = this.statusBarPatch.getContext('2d')!;
+      const imageData = ctx.createImageData(decoded.width, decoded.height);
+      imageData.data.set(decoded.pixels);
+      ctx.putImageData(imageData, 0, 0);
+    }
+
     // Load number font (STTNUM0-9)
     for (let i = 0; i <= 9; i++) {
       const lumpName = `STTNUM${i}`;
@@ -114,6 +128,25 @@ export class StatusBar {
         } catch (error) {
           console.warn(`Failed to load number patch ${lumpName}:`, error);
         }
+      }
+    }
+
+    for (const lumpName of ['STFST00', 'STFST10', 'STFDEAD0']) {
+      const lumpData = this.wad.readLump(lumpName);
+      if (!lumpData) continue;
+
+      try {
+        const decoded = PatchDecoder.decodePatch(lumpData, this.palette);
+        const canvas = document.createElement('canvas');
+        canvas.width = decoded.width;
+        canvas.height = decoded.height;
+        const ctx = canvas.getContext('2d')!;
+        const imageData = ctx.createImageData(decoded.width, decoded.height);
+        imageData.data.set(decoded.pixels);
+        ctx.putImageData(imageData, 0, 0);
+        this.facePatches.push(canvas);
+      } catch (error) {
+        console.warn(`Failed to load face patch ${lumpName}:`, error);
       }
     }
 
@@ -158,9 +191,12 @@ export class StatusBar {
     this.ctx.fillStyle = '#2b2b2b'; // Dark gray background
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
-    // Draw DOOM-style background (simple for now)
-    this.ctx.fillStyle = '#666';
-    this.ctx.fillRect(0, 0, 320, 32);
+    if (this.statusBarPatch) {
+      this.ctx.drawImage(this.statusBarPatch, 0, 0);
+    } else {
+      this.ctx.fillStyle = '#666';
+      this.ctx.fillRect(0, 0, 320, 32);
+    }
 
     // Health (left side)
     this.ctx.fillStyle = '#ff0000'; // Red for health label
@@ -178,12 +214,10 @@ export class StatusBar {
     this.ctx.fillText('AMMO', 230, 12);
     this.drawNumber(Math.max(0, stats.ammo), 230, 16, 3);
 
-    // Face (center) - placeholder for now
-    this.ctx.fillStyle = '#888';
-    this.ctx.fillRect(145, 4, 30, 24);
-    this.ctx.fillStyle = '#000';
-    this.ctx.font = '16px monospace';
-    this.ctx.fillText(':)', 150, 20);
+    const face = this.facePatches[Math.min(this.facePatches.length - 1, Math.max(0, stats.face))];
+    if (face) {
+      this.ctx.drawImage(face, 143, 1);
+    }
 
     // Weapon indicator (bottom left)
     this.ctx.fillStyle = '#ffffff';

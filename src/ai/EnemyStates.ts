@@ -5,169 +5,156 @@
  */
 
 import type { Mobj } from '../game/mobj';
-import type { Fixed } from '../core';
+import { MobjFlags } from '../game/mobj';
+import { FixedToFloat, FloatToFixed, pRandom } from '../core';
+import type { MapData } from '../level/types';
+import { checkLineOfSight } from '../physics/LineOfSight';
+import { applyCollision, applyGravity, applyZMomentum } from '../physics';
+import { damageActor } from '../game/Damage';
 
-/**
- * AI State enumeration
- */
 export enum AIState {
-  IDLE = 'IDLE',           // Standing still, looking for targets
-  SEE = 'SEE',             // Spotted player, moving to attack
-  CHASE = 'CHASE',         // Chasing player
-  MELEE = 'MELEE',         // Melee attack
-  MISSILE = 'MISSILE',     // Ranged attack
-  PAIN = 'PAIN',           // Taking damage reaction
-  DEATH = 'DEATH',         // Death animation
-  DEAD = 'DEAD',           // Corpse
+  IDLE = 'IDLE',
+  CHASE = 'CHASE',
+  ATTACK = 'ATTACK',
+  PAIN = 'PAIN',
+  DEAD = 'DEAD',
 }
 
-/**
- * Enemy AI data attached to mobj
- */
 export interface EnemyAI {
   state: AIState;
-  target?: Mobj;           // Current target (usually player)
-  moveDir: number;         // Current movement direction (0-7)
-  moveCount: number;       // Ticks remaining for current movement
-  reactionTime: number;    // Delay before acting
-  threshold: number;       // Chase threshold
-  lastKnownX: Fixed;       // Last known target X
-  lastKnownY: Fixed;       // Last known target Y
+  target?: Mobj;
+  attackCooldown: number;
+  painTicks: number;
+  animationTicks: number;
 }
 
-/**
- * Create default enemy AI data
- */
-export function createEnemyAI(): EnemyAI {
-  return {
-    state: AIState.IDLE,
-    moveDir: 0,
-    moveCount: 0,
-    reactionTime: 0,
-    threshold: 0,
-    lastKnownX: 0,
-    lastKnownY: 0,
-  };
-}
+const MONSTER_SPEED: Record<number, number> = {
+  3004: 8,
+  9: 8,
+  3001: 8,
+};
 
-/**
- * AI Look - Search for targets
- * Based on A_Look from p_enemy.c
- */
-export function AI_Look(enemy: Mobj, enemyAI: EnemyAI, player: Mobj): void {
-  // TODO: Implement line-of-sight check
-  // For now, simple distance check
-  const dx = enemy.x - player.x;
-  const dy = enemy.y - player.y;
-  const distSq = (dx >> 16) * (dx >> 16) + (dy >> 16) * (dy >> 16);
-
-  // If player is within range, spot them
-  const SIGHT_RANGE = 1024 * 1024; // 1024 units squared
-  if (distSq < SIGHT_RANGE) {
-    enemyAI.target = player;
-    enemyAI.state = AIState.SEE;
+function getEnemyAI(enemy: Mobj): EnemyAI {
+  if (!(enemy as any).ai) {
+    (enemy as any).ai = {
+      state: AIState.IDLE,
+      attackCooldown: 0,
+      painTicks: 0,
+      animationTicks: 0,
+    } satisfies EnemyAI;
   }
+
+  return (enemy as any).ai as EnemyAI;
 }
 
-/**
- * AI Chase - Move toward target
- * Based on A_Chase from p_enemy.c
- */
-export function AI_Chase(enemy: Mobj, enemyAI: EnemyAI): void {
-  if (!enemyAI.target) {
-    enemyAI.state = AIState.IDLE;
+function updateMonsterFrame(enemy: Mobj, ai: EnemyAI): void {
+  if (enemy.health <= 0) {
+    enemy.frame = enemy.type === 2035 ? 'B' : 'H';
     return;
   }
 
-  // Simple pursuit - move toward target
-  const dx = enemyAI.target.x - enemy.x;
-  const dy = enemyAI.target.y - enemy.y;
+  if (ai.state === AIState.PAIN) {
+    enemy.frame = 'G';
+    return;
+  }
 
-  // Calculate direction (simplified)
-  // In full DOOM, this uses 8-way directional movement
-  const angle = Math.atan2(dy >> 16, dx >> 16);
+  if (ai.state === AIState.ATTACK) {
+    enemy.frame = 'E';
+    return;
+  }
 
-  // Store for movement system to use
-  enemy.angle = ((angle * (0xFFFFFFFF / (Math.PI * 2))) >>> 0) & 0xFFFFFFFF;
+  ai.animationTicks = (ai.animationTicks + 1) % 16;
+  enemy.frame = ai.animationTicks < 8 ? 'A' : 'B';
+}
 
-  // Check if close enough to attack
-  const distSq = (dx >> 16) * (dx >> 16) + (dy >> 16) * (dy >> 16);
-  const MELEE_RANGE = 64 * 64;
-  const MISSILE_RANGE = 512 * 512;
+function moveTowardPlayer(enemy: Mobj, player: Mobj, mapData: MapData): void {
+  const dx = FixedToFloat(player.x - enemy.x);
+  const dy = FixedToFloat(player.y - enemy.y);
+  const dist = Math.hypot(dx, dy);
+  if (dist <= 1) {
+    return;
+  }
 
-  if (distSq < MELEE_RANGE) {
-    enemyAI.state = AIState.MELEE;
-  } else if (distSq < MISSILE_RANGE) {
-    // Random chance to fire missile
-    if (Math.random() < 0.1) { // 10% chance per tick
-      enemyAI.state = AIState.MISSILE;
-    }
+  const speed = MONSTER_SPEED[enemy.type] ?? 8;
+  enemy.momx = FloatToFixed((dx / dist) * speed);
+  enemy.momy = FloatToFixed((dy / dist) * speed);
+  applyCollision(enemy, mapData);
+  applyGravity(enemy);
+  applyZMomentum(enemy);
+}
+
+function attackPlayer(enemy: Mobj, player: Mobj): void {
+  switch (enemy.type) {
+    case 3004:
+      damageActor(player, ((pRandom() % 5) + 1) * 3, enemy);
+      break;
+    case 9:
+      damageActor(player, ((pRandom() % 3) + 1) * 15, enemy);
+      break;
+    case 3001:
+      damageActor(player, 8 + (pRandom() % 8), enemy);
+      break;
   }
 }
 
-/**
- * AI Pain - React to damage
- */
-export function AI_Pain(_enemy: Mobj, enemyAI: EnemyAI): void {
-  // Pain state is temporary, return to chase after a few ticks
-  enemyAI.reactionTime = 8; // Pain animation lasts ~8 ticks
+export function updateMonster(enemy: Mobj, player: Mobj, mapData: MapData): void {
+  const ai = getEnemyAI(enemy);
 
-  // After pain, go back to chase
-  setTimeout(() => {
-    if (enemyAI.state === AIState.PAIN) {
-      enemyAI.state = AIState.CHASE;
-    }
-  }, 8 * (1000 / 35)); // 8 ticks at 35Hz
+  if (enemy.health <= 0) {
+    ai.state = AIState.DEAD;
+    updateMonsterFrame(enemy, ai);
+    return;
+  }
+
+  if (enemy.flags & MobjFlags.JUSTHIT) {
+    ai.state = AIState.PAIN;
+    ai.painTicks = 4;
+    enemy.flags &= ~MobjFlags.JUSTHIT;
+  }
+
+  if (ai.attackCooldown > 0) {
+    ai.attackCooldown--;
+  }
+
+  if (ai.painTicks > 0) {
+    ai.painTicks--;
+    ai.state = AIState.PAIN;
+    updateMonsterFrame(enemy, ai);
+    return;
+  }
+
+  const hasSight = checkLineOfSight(enemy, player, mapData);
+  const dist = Math.hypot(
+    FixedToFloat(player.x - enemy.x),
+    FixedToFloat(player.y - enemy.y)
+  );
+
+  if (hasSight) {
+    ai.target = player;
+  }
+
+  if (!ai.target) {
+    ai.state = AIState.IDLE;
+    updateMonsterFrame(enemy, ai);
+    return;
+  }
+
+  const meleeRange = enemy.type === 3001 ? 64 : 96;
+  const missileRange = enemy.type === 3001 ? 384 : 768;
+  const shouldAttack = hasSight && ai.attackCooldown <= 0 && dist <= missileRange;
+
+  if (shouldAttack && (dist <= meleeRange || (pRandom() % 100) < 18)) {
+    ai.state = AIState.ATTACK;
+    ai.attackCooldown = enemy.type === 9 ? 30 : 24;
+    attackPlayer(enemy, player);
+  } else {
+    ai.state = AIState.CHASE;
+    moveTowardPlayer(enemy, player, mapData);
+  }
+
+  updateMonsterFrame(enemy, ai);
 }
 
-/**
- * Monster thinker function
- * Main AI update called each tick
- */
-export function monsterThinker(mobj: Mobj): void {
-  // Get or create AI data
-  if (!(mobj as any).ai) {
-    (mobj as any).ai = createEnemyAI();
-  }
-
-  const ai = (mobj as any).ai as EnemyAI;
-
-  // State machine
-  switch (ai.state) {
-    case AIState.IDLE:
-      // Look for targets (player passed separately in game loop)
-      break;
-
-    case AIState.SEE:
-      // Transition to chase
-      ai.state = AIState.CHASE;
-      break;
-
-    case AIState.CHASE:
-      AI_Chase(mobj, ai);
-      break;
-
-    case AIState.MELEE:
-      // TODO: Implement melee attack
-      ai.state = AIState.CHASE;
-      break;
-
-    case AIState.MISSILE:
-      // TODO: Implement ranged attack
-      ai.state = AIState.CHASE;
-      break;
-
-    case AIState.PAIN:
-      // Pain state handled by AI_Pain
-      break;
-
-    case AIState.DEATH:
-      // Death animation
-      ai.state = AIState.DEAD;
-      break;
-
-    case AIState.DEAD:
-      // Do nothing
-      break;
-  }
+export function monsterThinker(_mobj: Mobj): void {
+  // Monster logic is wired from the main game loop so it has player/map context.
 }

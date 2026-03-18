@@ -6,6 +6,7 @@
 
 import type { Mobj } from './mobj';
 import { MobjFlags } from './mobj';
+import { pRandom } from '../core';
 
 /**
  * Damage flags
@@ -54,8 +55,14 @@ export function damageActor(
   // Apply armor (if target is player and has armor)
   let actualDamage = damage;
   if (!(flags & DamageFlags.NO_ARMOR) && target.player) {
-    // TODO: Implement armor absorption when we add armor to player state
-    // For now, no armor reduction
+    if (target.player.armor > 0) {
+      const saved = Math.min(
+        target.player.armor,
+        Math.floor(actualDamage * (target.player.armorType === 2 ? 0.5 : 1 / 3))
+      );
+      target.player.armor = Math.max(0, target.player.armor - saved);
+      actualDamage -= saved;
+    }
   }
 
   // Apply damage
@@ -73,6 +80,9 @@ export function damageActor(
   // For now, just set a flag
   if (target.health > 0) {
     target.flags |= MobjFlags.JUSTHIT;
+    if (target.player) {
+      target.player.damageCount = Math.min(100, target.player.damageCount + actualDamage);
+    }
 
     // Pain sound would play here
     console.log(`${target.type} took ${actualDamage} damage (${target.health} HP remaining)`);
@@ -96,6 +106,7 @@ function killActor(target: Mobj, attacker?: Mobj): void {
 
   // Add corpse flag
   target.flags |= MobjFlags.CORPSE;
+  target.frame = target.type === 2035 ? 'B' : 'H';
 
   // Stop any movement
   target.momx = 0;
@@ -119,7 +130,7 @@ function killActor(target: Mobj, attacker?: Mobj): void {
  * DOOM uses ((rand() % 8) + 1) * damage for most weapons
  */
 export function randomDamage(base: number, multiplier: number = 1): number {
-  const random = Math.floor(Math.random() * 8) + 1;
+  const random = (pRandom() % 8) + 1;
   return random * base * multiplier;
 }
 

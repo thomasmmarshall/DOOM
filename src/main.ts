@@ -21,7 +21,8 @@ import { StatusBar, type PlayerStats } from './ui';
 import { createPlayerWeapon, updateWeapon, fireWeapon, WeaponType, performHitscan, WEAPON_INFO, switchPlayerWeapon, canPlayerUseWeapon, consumeWeaponAmmo } from './weapons/WeaponSystem';
 import { damageActor, WeaponDamage } from './game/Damage';
 import { tryPickupItem, checkItemCollision } from './game/Pickups';
-import { monsterThinker } from './ai';
+import { updateMonster } from './ai';
+import { SoundManager } from './audio';
 
 class DoomGame {
   private scene: THREE.Scene;
@@ -42,7 +43,11 @@ class DoomGame {
   private triggerSystem?: TriggerSystem;
   private weaponRenderer?: WeaponRenderer;
   private statusBar?: StatusBar;
+  private soundManager?: SoundManager;
   private previousButtons: number = 0;
+  private visitedSecretSectors: Set<number> = new Set();
+  private sectorBaseLightLevels: number[] = [];
+  private levelTime: number = 0;
 
   constructor() {
     // Initialize trigonometry tables
@@ -140,7 +145,13 @@ class DoomGame {
     const spawnedThings = spawner.spawnThings(this.mapData);
 
     for (const spawned of spawnedThings) {
-      const thinker = spawned.mobj.countsTowardKill ? monsterThinker : undefined;
+      const thinker = spawned.mobj.countsTowardKill
+        ? (mobj: Mobj) => {
+            if (this.playerMobj && this.mapData) {
+              updateMonster(mobj, this.playerMobj, this.mapData);
+            }
+          }
+        : undefined;
       this.addWorldMobj(spawned.mobj, thinker);
     }
 
@@ -180,6 +191,60 @@ class DoomGame {
     }
 
     return this.playerMobj.player.maxAmmo[weaponInfo.ammoType];
+  }
+
+  private updateSectorSpecials(): void {
+    if (!this.playerMobj?.player || !this.mapData) {
+      return;
+    }
+
+    const sectorIndex = this.playerMobj.sectorIndex;
+    if (typeof sectorIndex === 'number') {
+      const sector = this.mapData.sectors[sectorIndex];
+      if (this.playerMobj.z <= this.playerMobj.floorz) {
+        if (sector.special === 7 && (this.levelTime & 0x1f) === 0 && !this.playerMobj.player.powerups.radsuit) {
+          damageActor(this.playerMobj, 5);
+          this.soundManager?.play('playerPain', 0.35);
+        }
+
+        if (sector.special === 9 && !this.visitedSecretSectors.has(sectorIndex)) {
+          this.visitedSecretSectors.add(sectorIndex);
+          this.playerMobj.player.message = 'A secret is revealed!';
+          this.playerMobj.player.bonusCount = 10;
+        }
+      }
+    }
+
+    for (let i = 0; i < this.mapData.sectors.length; i++) {
+      const base = this.sectorBaseLightLevels[i] ?? this.mapData.sectors[i].lightlevel;
+      const sector = this.mapData.sectors[i];
+      let nextLight = base;
+
+      switch (sector.special) {
+        case 1:
+          nextLight = (this.levelTime % 16) < 2 ? Math.max(32, base - 96) : base;
+          break;
+        case 8:
+          nextLight = (this.levelTime % 64) < 32 ? base : Math.max(32, base - 48);
+          break;
+        case 12:
+          nextLight = (this.levelTime % 16) < 8 ? Math.max(32, base - 64) : base;
+          break;
+      }
+
+      if (sector.lightlevel !== nextLight) {
+        sector.lightlevel = nextLight;
+        this.levelRenderer?.updateSectorLight(i, nextLight);
+      }
+    }
+
+    for (const line of this.mapData.linedefs) {
+      if (line.special === 48 && line.sidenum[0] !== -1) {
+        this.mapData.sidedefs[line.sidenum[0]].textureoffset += 1;
+      }
+    }
+
+    this.levelRenderer?.updateAnimatedWallOffsets();
   }
 
   public async init(): Promise<void> {
@@ -223,16 +288,18 @@ class DoomGame {
       // Create weapon renderer and HUD
       this.weaponRenderer = new WeaponRenderer(wad, rgbaPalette);
       this.statusBar = new StatusBar(wad, rgbaPalette);
+      this.soundManager = new SoundManager(wad);
       await this.statusBar.init();
+      this.sectorBaseLightLevels = this.mapData.sectors.map((sector) => sector.lightlevel);
 
       // Initialize sector managers with renderer callbacks
       this.doorManager = new DoorManager(
         this.mapData,
-        (sectorIndex, newHeight) => this.levelRenderer?.updateSectorCeiling(sectorIndex, newHeight)
+        (sectorIndex, oldHeight, newHeight) => this.levelRenderer?.updateSectorCeiling(sectorIndex, oldHeight, newHeight)
       );
       this.platformManager = new PlatformManager(
         this.mapData,
-        (sectorIndex, newHeight) => this.levelRenderer?.updateSectorFloor(sectorIndex, newHeight)
+        (sectorIndex, oldHeight, newHeight) => this.levelRenderer?.updateSectorFloor(sectorIndex, oldHeight, newHeight)
       );
       this.triggerSystem = new TriggerSystem(this.mapData, this.doorManager, this.platformManager);
 
@@ -317,6 +384,7 @@ class DoomGame {
    */
   private gameTick(tick: number): void {
     this.tickCount++;
+    this.levelTime++;
 
     if (!this.playerMobj || !this.mapData) return;
 
@@ -360,7 +428,10 @@ class DoomGame {
 
       // Check collision with player
       if (checkItemCollision(this.playerMobj, item)) {
-        tryPickupItem(item, this.playerMobj);
+        const result = tryPickupItem(item, this.playerMobj);
+        if (result.success) {
+          this.soundManager?.play('pickup', 0.35);
+        }
       }
     }
 
@@ -386,6 +457,8 @@ class DoomGame {
     if (this.playerMobj.player?.weapon) {
       updateWeapon(this.playerMobj.player.weapon);
     }
+
+    this.updateSectorSpecials();
 
     if (this.playerMobj.player) {
       if (this.playerMobj.player.bonusCount > 0) {
@@ -442,6 +515,16 @@ class DoomGame {
     const success = fireWeapon(weapon, this.playerMobj);
 
     if (success) {
+      if (weapon.currentWeapon === WeaponType.SHOTGUN) {
+        this.soundManager?.play('shotgun', 0.45);
+      } else if (weapon.currentWeapon === WeaponType.CHAINGUN) {
+        this.soundManager?.play('chaingun', 0.35);
+      } else if (weapon.currentWeapon === WeaponType.ROCKET_LAUNCHER) {
+        this.soundManager?.play('rocket', 0.45);
+      } else {
+        this.soundManager?.play('pistol', 0.35);
+      }
+
       // Get all mobjs from thinker manager
       const allMobjs = this.thinkerManager.getAllMobjs();
 
@@ -568,9 +651,17 @@ class DoomGame {
     }
 
     if (nearestLine >= 0) {
+      const special = this.mapData.linedefs[nearestLine].special;
       const success = this.triggerSystem.useLine(this.playerMobj, nearestLine);
       if (success) {
-        console.log(`Activated line ${nearestLine} (special ${this.mapData.linedefs[nearestLine].special})`);
+        console.log(`Activated line ${nearestLine} (special ${special})`);
+        this.soundManager?.play('switch', 0.3);
+        if (special === 1) {
+          this.soundManager?.play('doorOpen', 0.35);
+        } else if (special === 11) {
+          this.updateInfo('E1M1 complete. Exit switch activated.');
+          this.ticker?.stop();
+        }
       }
     }
   }

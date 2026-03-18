@@ -14,6 +14,8 @@ export interface WallSegment {
   materialIndex: number; // Index for texture lookup
   textureName: string;
   lightLevel: number;
+  lineIndex: number;
+  sideDefIndex: number;
 }
 
 export class WallBuilder {
@@ -45,6 +47,8 @@ export class WallBuilder {
         // One-sided wall - draw middle texture
         if (frontSide.midtexture !== '-') {
           const wall = this.createWall(
+            i,
+            linedef.sidenum[0],
             v1.x, v1.y,
             v2.x, v2.y,
             frontSector.floorheight,
@@ -64,6 +68,8 @@ export class WallBuilder {
         if (backSector.ceilingheight < frontSector.ceilingheight && frontSide.toptexture !== '-') {
           const unpegTop = (linedef.flags & ML_DONTPEGTOP) !== 0;
           const wall = this.createWall(
+            i,
+            linedef.sidenum[0],
             v1.x, v1.y,
             v2.x, v2.y,
             backSector.ceilingheight,
@@ -81,6 +87,8 @@ export class WallBuilder {
         if (backSector.floorheight > frontSector.floorheight && frontSide.bottomtexture !== '-') {
           const unpegBottom = (linedef.flags & ML_DONTPEGBOTTOM) !== 0;
           const wall = this.createWall(
+            i,
+            linedef.sidenum[0],
             v1.x, v1.y,
             v2.x, v2.y,
             frontSector.floorheight,
@@ -97,6 +105,8 @@ export class WallBuilder {
         // Middle texture (if present, this is for masked textures like gratings)
         if (frontSide.midtexture !== '-') {
           const wall = this.createWall(
+            i,
+            linedef.sidenum[0],
             v1.x, v1.y,
             v2.x, v2.y,
             frontSector.floorheight,
@@ -120,6 +130,8 @@ export class WallBuilder {
    * Create a single wall segment
    */
   private static createWall(
+    lineIndex: number,
+    sideDefIndex: number,
     x1: number, y1: number,
     x2: number, y2: number,
     bottomZ: number, topZ: number,
@@ -207,6 +219,8 @@ export class WallBuilder {
       materialIndex: 0,
       textureName,
       lightLevel,
+      lineIndex,
+      sideDefIndex,
     };
   }
 }
