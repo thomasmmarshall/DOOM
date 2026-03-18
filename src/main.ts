@@ -682,25 +682,29 @@ class DoomGame {
       FixedToFloat(viewZ)
     );
 
+    // Look direction from player angle (BAM to radians)
+    // DOOM coordinates: angle 0 = East, 90° = North
+    const angleRad = doomAngleToThreeRadians(this.playerMobj.angle);
+
+    // In DOOM/three.js conversion: X stays X, Y becomes -Z
+    const lookTarget = pos.clone();
+    lookTarget.x += Math.cos(angleRad) * 100;
+    lookTarget.z -= Math.sin(angleRad) * 100;
+
     if (this.useOrbitControls) {
-      // Orbit mode - position camera above and behind player
+      // Keep the orbit camera anchored near the player instead of whatever
+      // position OrbitControls happened to initialize with.
+      const orbitOffset = new THREE.Vector3(
+        -Math.cos(angleRad) * 160,
+        96,
+        Math.sin(angleRad) * 160
+      );
+      this.camera.position.copy(pos.clone().add(orbitOffset));
       this.controls.target.copy(pos);
       this.controls.update();
     } else {
       // First-person mode
       this.camera.position.copy(pos);
-
-      // Look direction from player angle (BAM to radians)
-      // DOOM coordinates: angle 0 = East, 90° = North
-      // three.js: We need to point the camera direction
-      const angleRad = doomAngleToThreeRadians(this.playerMobj.angle);
-
-      // Calculate look target
-      // In DOOM/three.js conversion: X stays X, Y becomes -Z
-      const lookTarget = pos.clone();
-      lookTarget.x += Math.cos(angleRad) * 100;
-      lookTarget.z -= Math.sin(angleRad) * 100; // Note: subtract because of coordinate flip
-
       this.camera.lookAt(lookTarget);
     }
   }
@@ -712,13 +716,8 @@ class DoomGame {
   private animate = (): void => {
     requestAnimationFrame(this.animate);
 
-    // Update controls (only if enabled)
-    if (this.useOrbitControls) {
-      this.controls.update();
-    }
-
-    // Update camera to follow player
-    if (!this.useOrbitControls && this.playerMobj) {
+    // Update camera to follow player in both first-person and orbit modes.
+    if (this.playerMobj) {
       this.updateCamera();
     }
 
