@@ -83,7 +83,7 @@ export class WeaponRenderer {
       -1,   // near
       1     // far
     );
-    this.camera.position.z = 0;
+    this.camera.position.z = 1;
   }
 
   /**
@@ -200,9 +200,12 @@ export class WeaponRenderer {
         transparent: true,
         alphaTest: 0.1,
         side: THREE.DoubleSide,
+        depthTest: false,
+        depthWrite: false,
       });
 
       this.weaponMesh = new THREE.Mesh(geometry, material);
+      this.weaponMesh.renderOrder = 9999;
       this.scene.add(this.weaponMesh);
     } else {
       // Update texture
@@ -211,33 +214,15 @@ export class WeaponRenderer {
       material.needsUpdate = true;
     }
 
-    // Position weapon using DOOM's weapon positioning
-    // DOOM resolution: 320x200
-    // Scale the weapon 1:1 with sprite pixels
+    // Scale the weapon 1:1 with sprite pixels.
     this.weaponMesh.scale.set(sprite.width, sprite.height, 1);
 
-    // DOOM weapon sprite positioning:
-    // - leftoffset: pixels from sprite's left edge to its "origin" point
-    // - topoffset: pixels from sprite's top edge to its "origin" point
-    // - Weapon is drawn so the origin is at screen center (160) horizontally
-    // - and near the bottom of the screen vertically
-    //
-    // In DOOM screen coords (Y=0 at top):
-    //   sprite_left = 160 - leftoffset
-    //   sprite_top = WEAPONTOP - topoffset (WEAPONTOP = 32)
-    //
-    // Our camera: Y=0 at bottom, Y=200 at top
-
-    // Sprite's left edge in screen coords
-    const spriteLeft = 160 - sprite.leftoffset;
-    // Sprite's top edge in DOOM coords (Y from top)
-    const spriteTopDoom = 32 - sprite.topoffset;
-    // Convert to our coords (Y from bottom)
-    const spriteTop = 200 - spriteTopDoom;
-
-    // THREE.js positions at center of geometry
-    const xPos = spriteLeft + sprite.width / 2;
-    const yPos = spriteTop - sprite.height / 2 + this.bobOffset;
+    // Keep the weapon centered at the bottom of the 320x200 view.
+    // The previous patch-offset math was pushing the sprite off-screen.
+    const bobX = Math.sin(this.animationTimer * 0.2) * Math.min(4, this.bobOffset * 0.08);
+    const bobY = Math.min(6, this.bobOffset * 0.12);
+    const xPos = 160 + bobX;
+    const yPos = sprite.height * 0.5 + 18 + bobY;
 
     this.weaponMesh.position.set(xPos, yPos, 0);
   }
@@ -252,6 +237,7 @@ export class WeaponRenderer {
 
     // Render weapon scene on top of main scene
     renderer.autoClear = false;
+    renderer.clearDepth();
     renderer.render(this.scene, this.camera);
     renderer.autoClear = true;
   }
