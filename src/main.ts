@@ -22,7 +22,7 @@ import { createPlayerWeapon, updateWeapon, fireWeapon, WeaponType, performHitsca
 import { damageActor, WeaponDamage } from './game/Damage';
 import { tryPickupItem, checkItemCollision } from './game/Pickups';
 import { updateMonster } from './ai';
-import { SoundManager } from './audio';
+import { MusicPlayer, SoundManager } from './audio';
 
 class DoomGame {
   private scene: THREE.Scene;
@@ -44,6 +44,7 @@ class DoomGame {
   private weaponRenderer?: WeaponRenderer;
   private statusBar?: StatusBar;
   private soundManager?: SoundManager;
+  private musicPlayer?: MusicPlayer;
   private previousButtons: number = 0;
   private visitedSecretSectors: Set<number> = new Set();
   private sectorBaseLightLevels: number[] = [];
@@ -91,6 +92,9 @@ class DoomGame {
 
     // Handle window resize
     window.addEventListener('resize', () => this.onResize());
+    this.renderer.domElement.addEventListener('pointerdown', () => {
+      void this.musicPlayer?.activate();
+    });
 
     // Update info
     this.updateInfo('DOOM three.js - Loading...');
@@ -289,8 +293,10 @@ class DoomGame {
       this.weaponRenderer = new WeaponRenderer(wad, rgbaPalette);
       this.statusBar = new StatusBar(wad, rgbaPalette);
       this.soundManager = new SoundManager(wad);
+      this.musicPlayer = new MusicPlayer(wad);
       await this.statusBar.init();
       this.sectorBaseLightLevels = this.mapData.sectors.map((sector) => sector.lightlevel);
+      this.musicPlayer.prepareMapMusic(mapName);
 
       // Initialize sector managers with renderer callbacks
       this.doorManager = new DoorManager(
@@ -351,6 +357,8 @@ class DoomGame {
 
       // Add key listeners
       window.addEventListener('keydown', (e) => {
+        void this.musicPlayer?.activate();
+
         if (e.code === 'KeyP' && this.ticker) {
           this.ticker.start();
           console.log('Game ticker started');
