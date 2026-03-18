@@ -58,6 +58,7 @@ export class SpriteRenderer {
 
     // Create sprite
     const sprite = new THREE.Sprite(material);
+    sprite.center.set(0.5, 0);
 
     // Get sprite dimensions for proper scaling
     const dims = this.spriteLoader.getSpriteDimensions(fullName);
