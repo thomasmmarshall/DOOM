@@ -120,7 +120,8 @@ function killActor(target: Mobj, attacker?: Mobj): void {
 
   // Player death
   if (target.player) {
-    // TODO: Implement player death state
+    target.player.message = 'You died!';
+    target.player.damageCount = 100;
     console.log('Player died! Game over (respawn not implemented yet)');
   }
 }

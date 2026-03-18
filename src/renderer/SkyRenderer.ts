@@ -23,18 +23,13 @@ export class SkyRenderer {
         material.map.needsUpdate = true;
       }
 
-      // Create sky cylinder - large enough to always be in background
-      // but will follow camera position
+      // Use a sphere instead of an open cylinder so the player can never
+      // see the top edge of the sky volume when looking up.
       const skyRadius = 4000;
-      const skyHeight = 2000;
-
-      const geometry = new THREE.CylinderGeometry(
+      const geometry = new THREE.SphereGeometry(
         skyRadius,
-        skyRadius,
-        skyHeight,
         64,
-        1,
-        true // openEnded
+        32
       );
 
       // Modify UVs for proper sky texture mapping
@@ -42,8 +37,10 @@ export class SkyRenderer {
       const uvAttribute = geometry.getAttribute('uv');
       for (let i = 0; i < uvAttribute.count; i++) {
         let u = uvAttribute.getX(i);
+        const v = THREE.MathUtils.clamp(uvAttribute.getY(i), 0.08, 0.92);
         u = (1 - u) * 4; // Flip and tile 4x around cylinder
         uvAttribute.setX(i, u);
+        uvAttribute.setY(i, v);
       }
       uvAttribute.needsUpdate = true;
 

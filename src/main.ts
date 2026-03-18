@@ -60,6 +60,7 @@ class DoomGame {
   private visitedSecretSectors: Set<number> = new Set();
   private sectorBaseLightLevels: number[] = [];
   private levelTime: number = 0;
+  private playerDied: boolean = false;
 
   constructor() {
     // Initialize trigonometry tables
@@ -155,6 +156,26 @@ class DoomGame {
 
   private addWorldMobj(mobj: Mobj, thinker?: (mobj: Mobj) => void): void {
     this.thinkerManager.addThinker(mobj, thinker ?? (() => {}));
+  }
+
+  private handlePlayerDeath(): void {
+    if (this.playerDied || !this.playerMobj?.player) {
+      return;
+    }
+
+    this.playerDied = true;
+    this.playerMobj.momx = 0;
+    this.playerMobj.momy = 0;
+    this.playerMobj.momz = 0;
+    this.previousButtons = 0;
+    this.ticker?.stop();
+    this.controls.enabled = false;
+    this.infoElement.style.display = 'block';
+    this.updateInfo('You died. Press R to restart.');
+
+    if (document.pointerLockElement) {
+      void document.exitPointerLock();
+    }
   }
 
   private spawnMapThings(): void {
@@ -381,6 +402,13 @@ class DoomGame {
       window.addEventListener('keydown', (e) => {
         void this.musicPlayer?.activate();
 
+        if (this.playerDied) {
+          if (e.code === 'KeyR') {
+            window.location.reload();
+          }
+          return;
+        }
+
         if (e.code === 'KeyP' && this.ticker) {
           this.ticker.start();
           console.log('Game ticker started');
@@ -419,6 +447,10 @@ class DoomGame {
     this.levelTime++;
 
     if (!this.playerMobj || !this.mapData) return;
+    if (this.playerMobj.health <= 0) {
+      this.handlePlayerDeath();
+      return;
+    }
 
     // Save old position for walk trigger detection
     const oldX = FixedToFloat(this.playerMobj.x);
@@ -491,6 +523,10 @@ class DoomGame {
     }
 
     this.updateSectorSpecials();
+
+    if (this.playerMobj.health <= 0) {
+      this.handlePlayerDeath();
+    }
 
     if (this.playerMobj.player) {
       if (this.playerMobj.player.bonusCount > 0) {
@@ -763,7 +799,7 @@ class DoomGame {
     }
 
     // Update weapon every frame (not just in game tick)
-    if (this.weaponRenderer && this.playerMobj?.player?.weapon) {
+    if (this.weaponRenderer && this.playerMobj?.player?.weapon && !this.playerDied) {
       const bob = FixedToFloat(this.playerMobj.player.bob);
       this.weaponRenderer.update(this.playerMobj.player.weapon, bob);
     }
@@ -772,7 +808,7 @@ class DoomGame {
     this.renderer.render(this.scene, this.camera);
 
     // Render weapon overlay (in first-person mode only)
-    if (!this.useOrbitControls && this.weaponRenderer) {
+    if (!this.useOrbitControls && this.weaponRenderer && !this.playerDied) {
       this.weaponRenderer.render(this.renderer);
     }
   };
