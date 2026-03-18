@@ -355,11 +355,13 @@ class DoomGame {
           this.ticker.start();
           console.log('Game ticker started');
           this.updateInfo(`${mapName} - Physics active. WASD to move, mouse to look, SPACE to use, 1-7 weapons, CTRL to fire.`);
+          this.infoElement.style.display = 'none';
         } else if (e.code === 'KeyF') {
           this.useOrbitControls = !this.useOrbitControls;
           this.controls.enabled = this.useOrbitControls;
           if (!this.useOrbitControls && this.playerMobj) {
             this.inputManager.requestPointerLock();
+            this.infoElement.style.display = 'none';
           }
           console.log(`${this.useOrbitControls ? 'Orbit controls' : 'First-person mode'} enabled`);
         } else if (e.code.startsWith('Digit') && this.playerMobj?.player?.weapon) {

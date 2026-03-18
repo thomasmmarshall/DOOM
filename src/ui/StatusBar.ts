@@ -178,6 +178,13 @@ export class StatusBar {
     }
   }
 
+  private drawNumberRightAligned(num: number, rightX: number, y: number, digits: number = 3): void {
+    const text = num.toString().padStart(digits, '0').substring(0, digits);
+    const widths = text.split('').map((char) => this.numberPatches[parseInt(char)]?.width ?? 8);
+    const totalWidth = widths.reduce((sum, width) => sum + width, 0);
+    this.drawNumber(num, rightX - totalWidth, y, digits);
+  }
+
   /**
    * Render status bar
    */
@@ -198,53 +205,37 @@ export class StatusBar {
       this.ctx.fillRect(0, 0, 320, 32);
     }
 
-    // Health (left side)
-    this.ctx.fillStyle = '#ff0000'; // Red for health label
-    this.ctx.font = 'bold 10px monospace';
-    this.ctx.fillText('HEALTH', 10, 12);
-    this.drawNumber(Math.max(0, stats.health), 10, 16, 3);
-
-    // Armor (left-center)
-    this.ctx.fillStyle = '#00ff00'; // Green for armor label
-    this.ctx.fillText('ARMOR', 70, 12);
-    this.drawNumber(Math.max(0, stats.armor), 70, 16, 3);
-
-    // Ammo (right side)
-    this.ctx.fillStyle = '#ffff00'; // Yellow for ammo label
-    this.ctx.fillText('AMMO', 230, 12);
-    this.drawNumber(Math.max(0, stats.ammo), 230, 16, 3);
+    // Match the original STBAR layout instead of drawing extra labels on top.
+    this.drawNumberRightAligned(Math.max(0, stats.ammo), 43, 2, 3);
+    this.drawNumberRightAligned(Math.max(0, stats.health), 95, 2, 3);
+    this.drawNumberRightAligned(Math.max(0, stats.armor), 221, 2, 3);
 
     const face = this.facePatches[Math.min(this.facePatches.length - 1, Math.max(0, stats.face))];
     if (face) {
       this.ctx.drawImage(face, 143, 1);
     }
 
-    // Weapon indicator (bottom left)
-    this.ctx.fillStyle = '#ffffff';
-    this.ctx.font = '8px monospace';
-    this.ctx.fillText(`WPN: ${stats.currentWeapon + 1}`, 10, 30);
-
     // Keys indicator (bottom right) - simple colored squares for now
-    let keyX = 260;
+    let keyX = 239;
     if (stats.keys.blueCard || stats.keys.blueSkull) {
       this.ctx.fillStyle = '#0000ff';
-      this.ctx.fillRect(keyX, 22, 6, 6);
-      keyX += 8;
+      this.ctx.fillRect(keyX, 4, 8, 5);
+      keyX += 10;
     }
     if (stats.keys.yellowCard || stats.keys.yellowSkull) {
       this.ctx.fillStyle = '#ffff00';
-      this.ctx.fillRect(keyX, 22, 6, 6);
-      keyX += 8;
+      this.ctx.fillRect(keyX, 4, 8, 5);
+      keyX += 10;
     }
     if (stats.keys.redCard || stats.keys.redSkull) {
       this.ctx.fillStyle = '#ff0000';
-      this.ctx.fillRect(keyX, 22, 6, 6);
+      this.ctx.fillRect(keyX, 4, 8, 5);
     }
 
     if (stats.message) {
       this.ctx.fillStyle = '#ffd54a';
       this.ctx.font = '8px monospace';
-      this.ctx.fillText(stats.message, 90, 30);
+      this.ctx.fillText(stats.message, 110, 29);
     }
   }
 
