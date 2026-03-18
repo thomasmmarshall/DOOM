@@ -335,7 +335,10 @@ export class TextureManager {
   }
 
   createSkyMaterial(textureName: string): THREE.MeshBasicMaterial {
-    const texture = this.getTexture(textureName);
+    let texture = this.getSkyTexture(textureName);
+    if (!texture) {
+      texture = this.createPlaceholderSkyTexture();
+    }
     const material = new THREE.MeshBasicMaterial({
       map: texture,
       side: THREE.BackSide,
@@ -343,14 +346,82 @@ export class TextureManager {
       fog: false,
       color: 0xffffff,
     });
-    applyDoomIndexedMaterial(material, {
-      paletteResources: this.paletteResources,
-      lightLevel: 255,
-      useDistanceLighting: false,
-      fullBright: true,
-    });
-
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
     return material;
+  }
+
+  private createPlaceholderSkyTexture(): THREE.DataTexture {
+    const w = 256;
+    const h = 128;
+    const rgba = new Uint8ClampedArray(w * h * 4);
+    const darkBlue = this.findClosestPaletteIndex(0, 0, 80);
+    const midBlue = this.findClosestPaletteIndex(40, 40, 120);
+    for (let y = 0; y < h; y++) {
+      const t = y / h;
+      const p = Math.floor(darkBlue + (1 - t) * (midBlue - darkBlue));
+      const pi = Math.max(0, Math.min(255, p));
+      for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 4;
+        rgba[i] = this.palette[pi * 3];
+        rgba[i + 1] = this.palette[pi * 3 + 1];
+        rgba[i + 2] = this.palette[pi * 3 + 2];
+        rgba[i + 3] = 255;
+      }
+    }
+    const tex = new THREE.DataTexture(rgba, w, h, THREE.RGBAFormat, THREE.UnsignedByteType);
+    tex.magFilter = THREE.NearestFilter;
+    tex.minFilter = THREE.NearestFilter;
+    tex.needsUpdate = true;
+    return tex;
+  }
+
+  private skyTextureCache: Map<string, THREE.DataTexture> = new Map();
+
+  private getSkyTexture(name: string): THREE.DataTexture | null {
+    const upperName = name.toUpperCase();
+    if (this.skyTextureCache.has(upperName)) {
+      return this.skyTextureCache.get(upperName)!;
+    }
+    const indexed = this.getIndexedGraphic(name);
+    if (!indexed) return null;
+    const rgba = new Uint8ClampedArray(indexed.width * indexed.height * 4);
+    for (let i = 0; i < indexed.pixels.length; i++) {
+      const idx = indexed.pixels[i];
+      const po = idx * 3;
+      const ro = i * 4;
+      rgba[ro] = this.palette[po];
+      rgba[ro + 1] = this.palette[po + 1];
+      rgba[ro + 2] = this.palette[po + 2];
+      rgba[ro + 3] = indexed.opaque[i];
+    }
+    const tex = new THREE.DataTexture(
+      rgba,
+      indexed.width,
+      indexed.height,
+      THREE.RGBAFormat,
+      THREE.UnsignedByteType
+    );
+    tex.magFilter = THREE.NearestFilter;
+    tex.minFilter = THREE.NearestFilter;
+    tex.needsUpdate = true;
+    this.skyTextureCache.set(upperName, tex);
+    return tex;
+  }
+
+  private getIndexedGraphic(name: string): IndexedGraphic | null {
+    const upperName = name.toUpperCase();
+    if (this.textureComposer.hasTexture(upperName)) {
+      return this.textureComposer.composeTexture(upperName);
+    }
+    const patchData = this.wad.readLump(upperName);
+    if (!patchData) return null;
+    try {
+      return PatchDecoder.decodePatchGraphic(patchData);
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -374,9 +445,13 @@ export class TextureManager {
     for (const texture of this.flatCache.values()) {
       texture.texture.dispose();
     }
+    for (const texture of this.skyTextureCache.values()) {
+      texture.dispose();
+    }
 
     this.textureCache.clear();
     this.flatCache.clear();
+    this.skyTextureCache.clear();
     this.paletteResources.paletteTexture.dispose();
     this.paletteResources.colormapTexture.dispose();
   }

@@ -23,24 +23,25 @@ export class SkyRenderer {
         material.map.needsUpdate = true;
       }
 
-      // Use a sphere instead of an open cylinder so the player can never
-      // see the top edge of the sky volume when looking up.
+      // DOOM uses cylinder mapping: 256x128 texture, 4x horizontal tile.
+      // Aspect 4*256:128 = 8:1. Use cylinder for correct horizon mapping.
       const skyRadius = 4000;
-      const geometry = new THREE.SphereGeometry(
+      const circumference = 2 * Math.PI * skyRadius;
+      const skyHeight = circumference / 8;
+
+      const geometry = new THREE.CylinderGeometry(
         skyRadius,
+        skyRadius,
+        skyHeight,
         64,
-        32
+        1,
+        true
       );
 
-      // Modify UVs for proper sky texture mapping
-      // DOOM sky textures tile 4x horizontally around 360 degrees
+      // Tile 4x horizontally; v stays 0→1 (no vertical stretch)
       const uvAttribute = geometry.getAttribute('uv');
       for (let i = 0; i < uvAttribute.count; i++) {
-        let u = uvAttribute.getX(i);
-        const v = THREE.MathUtils.clamp(uvAttribute.getY(i), 0.08, 0.92);
-        u = (1 - u) * 4; // Flip and tile 4x around cylinder
-        uvAttribute.setX(i, u);
-        uvAttribute.setY(i, v);
+        uvAttribute.setX(i, (1 - uvAttribute.getX(i)) * 4);
       }
       uvAttribute.needsUpdate = true;
 
