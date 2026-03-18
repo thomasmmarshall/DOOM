@@ -8,7 +8,8 @@ import * as THREE from 'three';
 import type { Mobj } from '../game/mobj';
 import { SpriteLoader } from '../graphics/SpriteLoader';
 import type { WADReader } from '../wad';
-import { doomToThree, FixedToFloat } from '../core';
+import { doomAngleToThreeRadians, doomToThree, FixedToFloat } from '../core';
+import { lightLevelToBrightness } from './doomLighting';
 
 export interface SpriteObject {
   mobj: Mobj;
@@ -37,20 +38,16 @@ export class SpriteRenderer {
    * @returns SpriteObject or null if failed
    */
   addSprite(mobj: Mobj, spriteName: string, frame: string, rotation: number = 0): SpriteObject | null {
-    // Build full sprite lump name
-    // Format: 4-char name + frame + rotation
-    // Example: TROOA0 = Imp, frame A, rotation 0
     const fullName = `${spriteName}${frame}${rotation}`;
-
-    const texture = this.spriteLoader.loadSprite(fullName);
-    if (!texture) {
+    const spriteFrame = this.spriteLoader.getSpriteFrame(spriteName, frame, rotation);
+    if (!spriteFrame) {
       console.warn(`Failed to load sprite: ${fullName}`);
       return null;
     }
 
     // Create sprite material with transparency
     const material = new THREE.SpriteMaterial({
-      map: texture,
+      map: spriteFrame.texture,
       transparent: true,
       alphaTest: 0.5, // Discard pixels below this alpha
       depthWrite: true,
@@ -58,14 +55,7 @@ export class SpriteRenderer {
 
     // Create sprite
     const sprite = new THREE.Sprite(material);
-    sprite.center.set(0.5, 0);
-
-    // Get sprite dimensions for proper scaling
-    const dims = this.spriteLoader.getSpriteDimensions(fullName);
-    if (dims) {
-      // Scale sprite to match DOOM units
-      sprite.scale.set(dims.width, dims.height, 1);
-    }
+    this.applySpriteFrame(sprite, spriteFrame);
 
     // Position sprite at mobj position
     this.updateSpritePosition(sprite, mobj);
@@ -100,14 +90,14 @@ export class SpriteRenderer {
    * Update all sprite positions and rotations
    * Call this each frame
    */
-  update(_cameraPosition: THREE.Vector3): void {
+  update(cameraX: number, cameraY: number, _cameraPosition?: THREE.Vector3): void {
     for (const spriteObj of this.spriteObjects.values()) {
       // Update position
       this.updateSpritePosition(spriteObj.sprite, spriteObj.mobj);
 
       const spriteName = spriteObj.mobj.sprite ?? spriteObj.currentFrame.slice(0, 4);
       const frame = spriteObj.mobj.frame ?? 'A';
-      const rotation = spriteObj.mobj.rotation ?? 0;
+      const rotation = this.selectRotation(spriteObj.mobj, cameraX, cameraY);
       this.updateSpriteFrame(spriteObj.mobj, spriteName, frame, rotation);
 
       spriteObj.sprite.visible = !spriteObj.mobj.removed;
@@ -133,15 +123,14 @@ export class SpriteRenderer {
       return; // Already showing this frame
     }
 
-    const texture = this.spriteLoader.loadSprite(fullName);
-    if (!texture) return;
+    const spriteFrame = this.spriteLoader.getSpriteFrame(spriteName, frame, rotation);
+    if (!spriteFrame) return;
 
     // Update material map
     const material = spriteObj.sprite.material as THREE.SpriteMaterial;
-    if (material.map) {
-      material.map = texture;
-      material.needsUpdate = true;
-    }
+    material.map = spriteFrame.texture;
+    material.needsUpdate = true;
+    this.applySpriteFrame(spriteObj.sprite, spriteFrame);
 
     spriteObj.currentFrame = fullName;
   }
@@ -168,7 +157,7 @@ export class SpriteRenderer {
     const spriteObj = this.spriteObjects.get(mobj);
     if (!spriteObj) return;
 
-    const brightness = Math.max(0.2, Math.min(1.0, lightLevel / 255));
+    const brightness = lightLevelToBrightness(lightLevel);
     const material = spriteObj.sprite.material as THREE.SpriteMaterial;
     material.color.setRGB(brightness, brightness, brightness);
     spriteObj.lightLevel = lightLevel;
@@ -199,5 +188,32 @@ export class SpriteRenderer {
     }
     this.spriteObjects.clear();
     this.spriteLoader.clearCache();
+  }
+
+  private applySpriteFrame(sprite: THREE.Sprite, spriteFrame: {
+    width: number;
+    height: number;
+    leftoffset: number;
+    topoffset: number;
+  }): void {
+    const centerX = spriteFrame.width === 0 ? 0.5 : spriteFrame.leftoffset / spriteFrame.width;
+    const centerY = spriteFrame.height === 0 ? 0 : 1 - (spriteFrame.topoffset / spriteFrame.height);
+
+    sprite.scale.set(spriteFrame.width, spriteFrame.height, 1);
+    sprite.center.set(
+      THREE.MathUtils.clamp(centerX, 0, 1),
+      THREE.MathUtils.clamp(centerY, 0, 1)
+    );
+  }
+
+  private selectRotation(mobj: Mobj, cameraX: number, cameraY: number): number {
+    const actorX = FixedToFloat(mobj.x);
+    const actorY = FixedToFloat(mobj.y);
+    const actorAngle = doomAngleToThreeRadians(mobj.angle);
+    const angleToViewer = Math.atan2(cameraY - actorY, cameraX - actorX);
+    const relativeAngle = (angleToViewer - actorAngle + (Math.PI * 2)) % (Math.PI * 2);
+    const octant = Math.round(relativeAngle / (Math.PI / 4)) % 8;
+
+    return octant + 1;
   }
 }

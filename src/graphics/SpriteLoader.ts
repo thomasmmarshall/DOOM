@@ -8,56 +8,168 @@ import * as THREE from 'three';
 import type { WADReader } from '../wad';
 import { PatchDecoder } from './PatchDecoder';
 
+interface SpriteDirectoryEntry {
+  lumpName: string;
+  mirrored: boolean;
+}
+
+export interface LoadedSpriteFrame {
+  texture: THREE.CanvasTexture;
+  width: number;
+  height: number;
+  leftoffset: number;
+  topoffset: number;
+}
+
 export class SpriteLoader {
   private wad: WADReader;
   private palette: Uint8ClampedArray;
-  private spriteCache: Map<string, THREE.CanvasTexture>;
-  private resolvedNameCache: Map<string, string | null>;
+  private spriteCache: Map<string, LoadedSpriteFrame>;
+  private spriteDirectory: Map<string, SpriteDirectoryEntry>;
 
   constructor(wad: WADReader, palette: Uint8ClampedArray) {
     this.wad = wad;
     this.palette = palette;
     this.spriteCache = new Map();
-    this.resolvedNameCache = new Map();
+    this.spriteDirectory = new Map();
+    this.buildSpriteDirectory();
   }
 
-  /**
-   * Resolve a requested sprite name to an actual lump in the WAD.
-   * Monster sprites often use combined lump names like TROOA1A5 rather than TROOA1.
-   */
-  private resolveSpriteName(name: string): string | null {
+  private buildSpriteDirectory(): void {
+    const spritePattern = /^([A-Z0-9]{4})([A-Z])(0|[1-8])(?:([A-Z])(0|[1-8]))?$/;
+    const directory = this.wad.getDirectory();
+    let inSprites = false;
+
+    for (const lump of directory) {
+      if (lump.name === 'S_START' || lump.name === 'SS_START') {
+        inSprites = true;
+        continue;
+      }
+
+      if (lump.name === 'S_END' || lump.name === 'SS_END') {
+        inSprites = false;
+        continue;
+      }
+
+      if (!inSprites) {
+        continue;
+      }
+
+      const match = lump.name.match(spritePattern);
+      if (!match) {
+        continue;
+      }
+
+      const [, spriteName, frameA, rotationA, frameB, rotationB] = match;
+      this.spriteDirectory.set(`${spriteName}${frameA}${rotationA}`, {
+        lumpName: lump.name,
+        mirrored: false,
+      });
+
+      if (frameB && rotationB) {
+        this.spriteDirectory.set(`${spriteName}${frameB}${rotationB}`, {
+          lumpName: lump.name,
+          mirrored: true,
+        });
+      }
+    }
+  }
+
+  private parseRequest(name: string): { spriteName: string; frame: string; rotation: number } | null {
     const upperName = name.toUpperCase();
-
-    if (this.resolvedNameCache.has(upperName)) {
-      return this.resolvedNameCache.get(upperName)!;
+    if (upperName.length < 6) {
+      return null;
     }
 
-    if (this.wad.hasLump(upperName)) {
-      this.resolvedNameCache.set(upperName, upperName);
-      return upperName;
+    return {
+      spriteName: upperName.slice(0, 4),
+      frame: upperName[4],
+      rotation: Number.parseInt(upperName[5], 10) || 0,
+    };
+  }
+
+  private resolveSpriteEntry(spriteName: string, frame: string, rotation: number): SpriteDirectoryEntry | null {
+    const exactKey = `${spriteName}${frame}${rotation}`;
+    const exact = this.spriteDirectory.get(exactKey);
+    if (exact) {
+      return exact;
     }
 
-    const prefixedLump = this.wad.getDirectory().find((lump) => lump.name.startsWith(upperName));
-    if (prefixedLump) {
-      this.resolvedNameCache.set(upperName, prefixedLump.name);
-      return prefixedLump.name;
+    const unrotated = this.spriteDirectory.get(`${spriteName}${frame}0`);
+    if (unrotated) {
+      return unrotated;
     }
 
-    // Non-rotating sprites use A0, but many monsters only provide A1-A8 rotations.
-    if (upperName.length === 6 && upperName[5] === '0') {
-      const framePrefix = upperName.slice(0, 5);
-      for (let rotation = 1; rotation <= 8; rotation++) {
-        const rotatedName = `${framePrefix}${rotation}`;
-        const resolved = this.resolveSpriteName(rotatedName);
-        if (resolved) {
-          this.resolvedNameCache.set(upperName, resolved);
-          return resolved;
-        }
+    for (let candidate = 1; candidate <= 8; candidate++) {
+      const rotated = this.spriteDirectory.get(`${spriteName}${frame}${candidate}`);
+      if (rotated) {
+        return rotated;
       }
     }
 
-    this.resolvedNameCache.set(upperName, null);
     return null;
+  }
+
+  private createTextureCanvas(
+    source: HTMLCanvasElement,
+    mirrored: boolean
+  ): HTMLCanvasElement {
+    if (!mirrored) {
+      return source;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = source.width;
+    canvas.height = source.height;
+
+    const ctx = canvas.getContext('2d')!;
+    ctx.translate(source.width, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(source, 0, 0);
+    return canvas;
+  }
+
+  getSpriteFrame(spriteName: string, frame: string, rotation: number): LoadedSpriteFrame | null {
+    const cacheKey = `${spriteName}${frame}${rotation}`.toUpperCase();
+    if (this.spriteCache.has(cacheKey)) {
+      return this.spriteCache.get(cacheKey)!;
+    }
+
+    const entry = this.resolveSpriteEntry(spriteName.toUpperCase(), frame.toUpperCase(), rotation);
+    if (!entry) {
+      return null;
+    }
+
+    const spriteData = this.wad.readLump(entry.lumpName);
+    if (!spriteData) {
+      return null;
+    }
+
+    try {
+      const decoded = PatchDecoder.decodePatch(spriteData, this.palette);
+      const baseCanvas = PatchDecoder.patchToCanvas(decoded);
+      const canvas = this.createTextureCanvas(baseCanvas, entry.mirrored);
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.magFilter = THREE.NearestFilter;
+      texture.minFilter = THREE.NearestFilter;
+      texture.format = THREE.RGBAFormat;
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.needsUpdate = true;
+
+      const loaded: LoadedSpriteFrame = {
+        texture,
+        width: decoded.width,
+        height: decoded.height,
+        leftoffset: entry.mirrored ? decoded.width - decoded.leftoffset : decoded.leftoffset,
+        topoffset: decoded.topoffset,
+      };
+
+      this.spriteCache.set(cacheKey, loaded);
+      return loaded;
+    } catch (error) {
+      console.warn(`Failed to decode sprite ${entry.lumpName}:`, error);
+      return null;
+    }
   }
 
   /**
@@ -70,42 +182,12 @@ export class SpriteLoader {
   loadSprite(name: string): THREE.CanvasTexture | null {
     if (!name || name === '-') return null;
 
-    const resolvedName = this.resolveSpriteName(name);
-    if (!resolvedName) {
-      console.warn(`Sprite not found: ${name}`);
+    const parsed = this.parseRequest(name);
+    if (!parsed) {
       return null;
     }
 
-    // Check cache
-    if (this.spriteCache.has(resolvedName)) {
-      return this.spriteCache.get(resolvedName)!;
-    }
-
-    // Load sprite patch data
-    const spriteData = this.wad.readLump(resolvedName);
-    if (!spriteData) {
-      console.warn(`Sprite not found: ${resolvedName}`);
-      return null;
-    }
-
-    try {
-      // Decode sprite using patch decoder
-      const decoded = PatchDecoder.decodePatch(spriteData, this.palette);
-      const canvas = PatchDecoder.patchToCanvas(decoded);
-
-      const texture = new THREE.CanvasTexture(canvas);
-      texture.magFilter = THREE.NearestFilter;
-      texture.minFilter = THREE.NearestFilter;
-
-      // Sprites need transparency
-      texture.format = THREE.RGBAFormat;
-
-      this.spriteCache.set(resolvedName, texture);
-      return texture;
-    } catch (error) {
-      console.warn(`Failed to decode sprite ${resolvedName}:`, error);
-      return null;
-    }
+    return this.getSpriteFrame(parsed.spriteName, parsed.frame, parsed.rotation)?.texture ?? null;
   }
 
   /**
@@ -114,31 +196,27 @@ export class SpriteLoader {
    * @returns Width and height, or null if not found
    */
   getSpriteDimensions(name: string): { width: number; height: number } | null {
-    const resolvedName = this.resolveSpriteName(name);
-    if (!resolvedName) return null;
+    const parsed = this.parseRequest(name);
+    if (!parsed) return null;
 
-    const spriteData = this.wad.readLump(resolvedName);
-    if (!spriteData) return null;
-
-    try {
-      const decoded = PatchDecoder.decodePatch(spriteData, this.palette);
-      return {
-        width: decoded.width,
-        height: decoded.height,
-      };
-    } catch (error) {
+    const sprite = this.getSpriteFrame(parsed.spriteName, parsed.frame, parsed.rotation);
+    if (!sprite) {
       return null;
     }
+
+    return {
+      width: sprite.width,
+      height: sprite.height,
+    };
   }
 
   /**
    * Clear sprite cache
    */
   clearCache(): void {
-    for (const texture of this.spriteCache.values()) {
-      texture.dispose();
+    for (const sprite of this.spriteCache.values()) {
+      sprite.texture.dispose();
     }
     this.spriteCache.clear();
-    this.resolvedNameCache.clear();
   }
 }

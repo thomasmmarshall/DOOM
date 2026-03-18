@@ -9,11 +9,28 @@ import { findSectorAtPoint } from '../level';
 import type { WADReader } from '../wad';
 import { WallBuilder } from './WallBuilder';
 import { SectorBuilder } from './SectorBuilder';
-import { TextureManager } from './TextureManager';
+import { TextureManager, type TextureInfo } from './TextureManager';
 import { SkyRenderer } from './SkyRenderer';
 import { BSPRenderer } from './BSPRenderer';
 import { SpriteRenderer } from './SpriteRenderer';
 import type { Mobj } from '../game';
+import { getWallFakeContrast, lightLevelToBrightness } from './doomLighting';
+
+interface WallMeshInfo {
+  mesh: THREE.Mesh;
+  lineIndex: number;
+  sideDefIndex: number;
+  lightLevel: number;
+  textureWidth: number;
+  textureHeight: number;
+  baseTextureOffsetX: number;
+  baseTextureOffsetY: number;
+  bottomAligned: boolean;
+  worldWidth: number;
+  worldHeight: number;
+  lineDx: number;
+  lineDy: number;
+}
 
 export class LevelRenderer {
   private scene: THREE.Scene;
@@ -22,7 +39,7 @@ export class LevelRenderer {
   private bspRenderer: BSPRenderer;
   private sectorMeshes: Map<number, THREE.Mesh[]>; // sector index -> meshes
   private wallMeshes: THREE.Mesh[];
-  private wallMeshInfo: Array<{ mesh: THREE.Mesh; lineIndex: number; sideDefIndex: number; lightLevel: number }>;
+  private wallMeshInfo: WallMeshInfo[];
   private useBSPCulling: boolean = true;
   private spriteRenderer: SpriteRenderer;
   private skyRenderer: SkyRenderer;
@@ -58,14 +75,25 @@ export class LevelRenderer {
     console.log(`Built ${walls.length} wall segments`);
 
     for (const wall of walls) {
+      const textureInfo = this.textureManager.getTextureInfo(wall.textureName);
       const material = this.textureManager.createWallMaterial(
         wall.textureName,
-        wall.lightLevel,
-        false
+        wall.lightLevel + getWallFakeContrast(wall.lineDx, wall.lineDy),
+        wall.masked || Boolean(textureInfo?.masked)
       );
 
       const mesh = new THREE.Mesh(wall.geometry, material);
       mesh.frustumCulled = false; // We'll handle culling with BSP
+      this.applyWallUVs(
+        wall.geometry,
+        wall,
+        textureInfo ?? {
+          texture: material.map as THREE.CanvasTexture,
+          width: 64,
+          height: 64,
+          masked: false,
+        }
+      );
       this.scene.add(mesh);
       this.wallMeshes.push(mesh);
       this.wallMeshInfo.push({
@@ -73,6 +101,15 @@ export class LevelRenderer {
         lineIndex: wall.lineIndex,
         sideDefIndex: wall.sideDefIndex,
         lightLevel: wall.lightLevel,
+        textureWidth: textureInfo?.width ?? 64,
+        textureHeight: textureInfo?.height ?? 64,
+        baseTextureOffsetX: wall.textureOffsetX,
+        baseTextureOffsetY: wall.textureOffsetY,
+        bottomAligned: wall.bottomAligned,
+        worldWidth: wall.worldWidth,
+        worldHeight: wall.worldHeight,
+        lineDx: wall.lineDx,
+        lineDy: wall.lineDy,
       });
     }
 
@@ -143,6 +180,8 @@ export class LevelRenderer {
    * @param cameraPosition - three.js camera position for sprite billboarding
    */
   updateVisibility(cameraX: number, cameraY: number, cameraPosition?: THREE.Vector3): void {
+    this.spriteRenderer.update(cameraX, cameraY, cameraPosition);
+
     if (!this.useBSPCulling) {
       // BSP culling disabled - show everything
       return;
@@ -171,10 +210,6 @@ export class LevelRenderer {
     // For now, keep all walls visible
     // In a more advanced implementation, we'd track which walls belong to which subsectors
 
-    // Update sprite positions
-    if (cameraPosition) {
-      this.spriteRenderer.update(cameraPosition);
-    }
   }
 
   /**
@@ -245,7 +280,7 @@ export class LevelRenderer {
   updateSectorLight(sectorIndex: number, lightLevel: number): void {
     const meshes = this.sectorMeshes.get(sectorIndex);
     if (meshes) {
-      const brightness = Math.max(0.25, Math.min(1.0, lightLevel / 255));
+      const brightness = lightLevelToBrightness(lightLevel);
       for (const mesh of meshes) {
         const material = mesh.material as THREE.MeshBasicMaterial;
         material.color.setRGB(brightness, brightness, brightness);
@@ -265,7 +300,10 @@ export class LevelRenderer {
         continue;
       }
 
-      const brightness = Math.max(0.25, Math.min(1.0, lightLevel / 255));
+      const brightness = lightLevelToBrightness(
+        lightLevel,
+        getWallFakeContrast(info.lineDx, info.lineDy)
+      );
       const material = info.mesh.material as THREE.MeshBasicMaterial;
       material.color.setRGB(brightness, brightness, brightness);
     }
@@ -273,14 +311,17 @@ export class LevelRenderer {
 
   updateAnimatedWallOffsets(): void {
     for (const info of this.wallMeshInfo) {
-      const material = info.mesh.material as THREE.MeshBasicMaterial;
-      if (!material.map) {
-        continue;
-      }
-
       const sidedef = this.mapData.sidedefs[info.sideDefIndex];
-      material.map.offset.x = sidedef.textureoffset / 64;
-      material.map.offset.y = -sidedef.rowoffset / 64;
+      this.updateWallUVs(
+        info.mesh.geometry,
+        sidedef.textureoffset,
+        sidedef.rowoffset,
+        info.textureWidth,
+        info.textureHeight,
+        info.worldWidth,
+        info.worldHeight,
+        info.bottomAligned
+      );
     }
   }
 
@@ -390,5 +431,70 @@ export class LevelRenderer {
   dispose(): void {
     this.textureManager.clearCache();
     this.spriteRenderer.dispose();
+  }
+
+  private applyWallUVs(
+    geometry: THREE.BufferGeometry,
+    wall: {
+      textureOffsetX: number;
+      textureOffsetY: number;
+      worldWidth: number;
+      worldHeight: number;
+      bottomAligned: boolean;
+    },
+    textureInfo: TextureInfo
+  ): void {
+    this.updateWallUVs(
+      geometry,
+      wall.textureOffsetX,
+      wall.textureOffsetY,
+      textureInfo.width,
+      textureInfo.height,
+      wall.worldWidth,
+      wall.worldHeight,
+      wall.bottomAligned
+    );
+  }
+
+  private updateWallUVs(
+    geometry: THREE.BufferGeometry,
+    textureOffsetX: number,
+    textureOffsetY: number,
+    textureWidth: number,
+    textureHeight: number,
+    worldWidth: number,
+    worldHeight: number,
+    bottomAligned: boolean
+  ): void {
+    const width = Math.max(1, textureWidth);
+    const height = Math.max(1, textureHeight);
+    const topOffset = bottomAligned
+      ? textureOffsetY + (height - worldHeight)
+      : textureOffsetY;
+
+    const u1 = textureOffsetX / width;
+    const u2 = (textureOffsetX + worldWidth) / width;
+    const v1 = topOffset / height;
+    const v2 = (topOffset + worldHeight) / height;
+
+    const uvAttribute = geometry.getAttribute('uv') as THREE.BufferAttribute | undefined;
+    if (!uvAttribute) {
+      return;
+    }
+
+    const uvs = [
+      u1, v2,
+      u2, v2,
+      u2, v1,
+      u1, v2,
+      u2, v1,
+      u1, v1,
+    ];
+
+    for (let i = 0; i < uvs.length; i += 2) {
+      uvAttribute.setXY(i / 2, uvs[i], uvs[i + 1]);
+    }
+
+    uvAttribute.needsUpdate = true;
   }
 }

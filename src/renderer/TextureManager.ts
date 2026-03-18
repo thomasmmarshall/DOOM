@@ -7,12 +7,20 @@ import * as THREE from 'three';
 import type { WADReader } from '../wad';
 import { PatchDecoder, FlatLoader, TextureComposer } from '../graphics';
 import type { DecodedPatch } from '../graphics';
+import { lightLevelToBrightness } from './doomLighting';
+
+export interface TextureInfo {
+  texture: THREE.CanvasTexture;
+  width: number;
+  height: number;
+  masked: boolean;
+}
 
 export class TextureManager {
   private wad: WADReader;
   private palette: Uint8ClampedArray;
-  private textureCache: Map<string, THREE.CanvasTexture>;
-  private flatCache: Map<string, THREE.CanvasTexture>;
+  private textureCache: Map<string, TextureInfo>;
+  private flatCache: Map<string, TextureInfo>;
   private textureComposer: TextureComposer;
   private initialized: boolean = false;
   private flatNames: Set<string>;
@@ -70,6 +78,10 @@ export class TextureManager {
    * Get or load a wall texture
    */
   getTexture(name: string): THREE.CanvasTexture | null {
+    return this.getTextureInfo(name)?.texture ?? null;
+  }
+
+  getTextureInfo(name: string): TextureInfo | null {
     if (!name || name === '-') return null;
 
     const upperName = name.toUpperCase();
@@ -85,10 +97,12 @@ export class TextureManager {
     }
 
     let decoded: DecodedPatch | null = null;
+    let masked = false;
 
     // First, try composite texture (TEXTURE1/TEXTURE2)
     if (this.textureComposer.hasTexture(upperName)) {
       decoded = this.textureComposer.composeTexture(upperName, this.palette);
+      masked = this.textureComposer.getTexture(upperName)?.masked ?? false;
     }
 
     // If not found, try loading as a simple patch
@@ -118,8 +132,15 @@ export class TextureManager {
     texture.needsUpdate = true;
     texture.colorSpace = THREE.SRGBColorSpace;
 
-    this.textureCache.set(upperName, texture);
-    return texture;
+    const info: TextureInfo = {
+      texture,
+      width: decoded.width,
+      height: decoded.height,
+      masked,
+    };
+
+    this.textureCache.set(upperName, info);
+    return info;
   }
 
   /**
@@ -141,7 +162,7 @@ export class TextureManager {
   /**
    * Create a placeholder texture for missing textures
    */
-  private createMissingTexture(name: string): THREE.CanvasTexture {
+  private createMissingTexture(name: string): TextureInfo {
     const canvas = document.createElement('canvas');
     canvas.width = 64;
     canvas.height = 64;
@@ -158,15 +179,27 @@ export class TextureManager {
     texture.minFilter = THREE.NearestFilter;
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
+    texture.colorSpace = THREE.SRGBColorSpace;
 
-    this.textureCache.set(name, texture);
-    return texture;
+    const info: TextureInfo = {
+      texture,
+      width: 64,
+      height: 64,
+      masked: false,
+    };
+
+    this.textureCache.set(name, info);
+    return info;
   }
 
   /**
    * Get or load a flat (floor/ceiling) texture
    */
   getFlat(name: string): THREE.CanvasTexture | null {
+    return this.getFlatInfo(name)?.texture ?? null;
+  }
+
+  getFlatInfo(name: string): TextureInfo | null {
     if (!name || name === '-') {
       console.error(`Invalid flat name: "${name}"`);
       return this.createMissingFlat('INVALID');
@@ -213,8 +246,15 @@ export class TextureManager {
       texture.needsUpdate = true; // Ensure THREE.js knows to upload the texture
       texture.colorSpace = THREE.SRGBColorSpace;
 
-      this.flatCache.set(upperName, texture);
-      return texture;
+      const info: TextureInfo = {
+        texture,
+        width: canvas.width,
+        height: canvas.height,
+        masked: false,
+      };
+
+      this.flatCache.set(upperName, info);
+      return info;
     } catch (error) {
       console.error(`Failed to decode flat ${name}:`, error);
       return this.createMissingFlat(upperName);
@@ -224,7 +264,7 @@ export class TextureManager {
   /**
    * Create a placeholder flat for missing flats
    */
-  private createMissingFlat(name: string): THREE.CanvasTexture {
+  private createMissingFlat(name: string): TextureInfo {
     const canvas = document.createElement('canvas');
     canvas.width = 64;
     canvas.height = 64;
@@ -248,9 +288,17 @@ export class TextureManager {
     texture.minFilter = THREE.NearestFilter;
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
+    texture.colorSpace = THREE.SRGBColorSpace;
 
-    this.flatCache.set(name, texture);
-    return texture;
+    const info: TextureInfo = {
+      texture,
+      width: 64,
+      height: 64,
+      masked: false,
+    };
+
+    this.flatCache.set(name, info);
+    return info;
   }
 
   /**
@@ -258,15 +306,13 @@ export class TextureManager {
    */
   createWallMaterial(textureName: string, lightLevel: number, transparent: boolean = false): THREE.MeshBasicMaterial {
     const texture = this.getTexture(textureName);
-
-    // Convert DOOM light level (0-255) to brightness multiplier
-    // Use a minimum of 0.3 to ensure dark areas are still visible
-    const brightness = Math.max(0.3, Math.min(1.0, lightLevel / 255));
+    const brightness = lightLevelToBrightness(lightLevel);
 
     const material = new THREE.MeshBasicMaterial({
       map: texture,
       color: new THREE.Color(brightness, brightness, brightness),
       transparent: transparent,
+      alphaTest: transparent ? 0.5 : 0,
       side: THREE.DoubleSide,
       depthWrite: !transparent,
     });
@@ -279,11 +325,7 @@ export class TextureManager {
    */
   createFlatMaterial(flatName: string, lightLevel: number): THREE.MeshBasicMaterial {
     const texture = this.getFlat(flatName);
-
-    // Convert DOOM light level (0-255) to brightness multiplier
-    // DOOM uses 0-255, where 255 is full bright
-    // Use a minimum of 0.3 to ensure dark areas are still visible
-    const brightness = Math.max(0.3, Math.min(1.0, lightLevel / 255));
+    const brightness = lightLevelToBrightness(lightLevel);
 
     if (!texture) {
       console.error(`No texture for flat "${flatName}" - using magenta placeholder`);
@@ -319,10 +361,10 @@ export class TextureManager {
   clearCache(): void {
     // Dispose textures
     for (const texture of this.textureCache.values()) {
-      texture.dispose();
+      texture.texture.dispose();
     }
     for (const texture of this.flatCache.values()) {
-      texture.dispose();
+      texture.texture.dispose();
     }
 
     this.textureCache.clear();

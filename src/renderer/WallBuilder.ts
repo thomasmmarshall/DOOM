@@ -16,6 +16,14 @@ export interface WallSegment {
   lightLevel: number;
   lineIndex: number;
   sideDefIndex: number;
+  textureOffsetX: number;
+  textureOffsetY: number;
+  bottomAligned: boolean;
+  masked: boolean;
+  worldWidth: number;
+  worldHeight: number;
+  lineDx: number;
+  lineDy: number;
 }
 
 export class WallBuilder {
@@ -46,6 +54,7 @@ export class WallBuilder {
       if (!twoSided || !backSector) {
         // One-sided wall - draw middle texture
         if (frontSide.midtexture !== '-') {
+          const bottomAligned = (linedef.flags & ML_DONTPEGBOTTOM) !== 0;
           const wall = this.createWall(
             i,
             linedef.sidenum[0],
@@ -57,7 +66,7 @@ export class WallBuilder {
             frontSector.lightlevel,
             frontSide.textureoffset,
             frontSide.rowoffset,
-            false // middle texture pegging
+            bottomAligned
           );
           walls.push(wall);
         }
@@ -139,8 +148,8 @@ export class WallBuilder {
     lightLevel: number,
     textureOffsetX: number = 0,
     textureOffsetY: number = 0,
-    _unpeg: boolean = false,
-    _masked: boolean = false
+    bottomAligned: boolean = false,
+    masked: boolean = false
   ): WallSegment {
     // Convert DOOM coordinates to three.js
     const p1 = doomToThree(x1, y1, bottomZ);
@@ -167,25 +176,15 @@ export class WallBuilder {
     const width = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
     const height = topZ - bottomZ;
 
-    // UV coordinates
-    // In DOOM, 1 unit = 1 pixel, so we normalize by dividing by texture repeat size
-    // Using 64 as base tiling unit for both U and V (textures will repeat naturally)
-    const u1 = textureOffsetX / 64;
-    const u2 = (textureOffsetX + width) / 64;
-
-    // V coordinates: for unpeg, align to bottom, otherwise align to top
-    const v1 = textureOffsetY / 64;
-    const v2 = (textureOffsetY + height) / 64;
-
     const uvs = new Float32Array([
       // Triangle 1
-      u1, v2,  // bottom-left
-      u2, v2,  // bottom-right
-      u2, v1,  // top-right
+      0, 1,
+      1, 1,
+      1, 0,
       // Triangle 2
-      u1, v2,  // bottom-left
-      u2, v1,  // top-right
-      u1, v1,  // top-left
+      0, 1,
+      1, 0,
+      0, 0,
     ]);
 
     // Normals (pointing inward toward player)
@@ -221,6 +220,14 @@ export class WallBuilder {
       lightLevel,
       lineIndex,
       sideDefIndex,
+      textureOffsetX,
+      textureOffsetY,
+      bottomAligned,
+      masked,
+      worldWidth: width,
+      worldHeight: height,
+      lineDx: dx,
+      lineDy: dy,
     };
   }
 }

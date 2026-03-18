@@ -24,6 +24,17 @@ import { tryPickupItem, checkItemCollision } from './game/Pickups';
 import { updateMonster } from './ai';
 import { MusicPlayer, SoundManager } from './audio';
 
+const DOOM_DISPLAY_ASPECT = 4 / 3;
+const DOOM_INTERNAL_WIDTH = 320;
+const DOOM_INTERNAL_HEIGHT = 200;
+const DOOM_HORIZONTAL_FOV = 73.74;
+
+function horizontalToVerticalFov(horizontalFov: number, aspect: number): number {
+  const horizontalRadians = THREE.MathUtils.degToRad(horizontalFov);
+  const verticalRadians = 2 * Math.atan(Math.tan(horizontalRadians / 2) / aspect);
+  return THREE.MathUtils.radToDeg(verticalRadians);
+}
+
 class DoomGame {
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
@@ -63,17 +74,19 @@ class DoomGame {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x000000);
 
-    // DOOM's original aspect ratio was 4:3 (320x200 stretched to 4:3 CRT)
-    // FOV is approximately 73.74 degrees horizontal
+    // DOOM renders to 320x200 and displays it stretched to 4:3.
     this.camera = new THREE.PerspectiveCamera(
-      73.74, // DOOM's horizontal FOV
-      4 / 3, // 4:3 aspect ratio like original DOOM
+      horizontalToVerticalFov(DOOM_HORIZONTAL_FOV, DOOM_DISPLAY_ASPECT),
+      DOOM_DISPLAY_ASPECT,
       1,
       10000
     );
 
     this.renderer = new THREE.WebGLRenderer({ antialias: false });
-    this.renderer.setPixelRatio(1); // Pixel-perfect rendering like DOOM
+    this.renderer.setPixelRatio(1);
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.domElement.style.imageRendering = 'pixelated';
+    this.renderer.domElement.style.imageRendering = 'crisp-edges';
 
     // Calculate viewport size maintaining 4:3 aspect ratio
     this.updateRendererSize();
@@ -105,30 +118,34 @@ class DoomGame {
    */
   private updateRendererSize(): void {
     const windowAspect = window.innerWidth / window.innerHeight;
-    const targetAspect = 4 / 3;
+    const targetAspect = DOOM_DISPLAY_ASPECT;
 
-    let width, height;
+    let displayWidth: number;
+    let displayHeight: number;
 
     if (windowAspect > targetAspect) {
       // Window is wider - pillarbox (black bars on sides)
-      height = window.innerHeight;
-      width = height * targetAspect;
+      displayHeight = window.innerHeight;
+      displayWidth = displayHeight * targetAspect;
     } else {
       // Window is taller - letterbox (black bars on top/bottom)
-      width = window.innerWidth;
-      height = width / targetAspect;
+      displayWidth = window.innerWidth;
+      displayHeight = displayWidth / targetAspect;
     }
 
-    this.renderer.setSize(width, height);
+    this.renderer.setSize(DOOM_INTERNAL_WIDTH, DOOM_INTERNAL_HEIGHT, false);
+    this.renderer.domElement.style.width = `${displayWidth}px`;
+    this.renderer.domElement.style.height = `${displayHeight}px`;
 
     // Center the canvas
     this.renderer.domElement.style.position = 'absolute';
-    this.renderer.domElement.style.left = `${(window.innerWidth - width) / 2}px`;
-    this.renderer.domElement.style.top = `${(window.innerHeight - height) / 2}px`;
+    this.renderer.domElement.style.left = `${(window.innerWidth - displayWidth) / 2}px`;
+    this.renderer.domElement.style.top = `${(window.innerHeight - displayHeight) / 2}px`;
   }
 
   private onResize(): void {
     this.updateRendererSize();
+    this.camera.aspect = DOOM_DISPLAY_ASPECT;
     this.camera.updateProjectionMatrix();
   }
 

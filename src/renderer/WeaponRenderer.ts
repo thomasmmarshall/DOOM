@@ -121,6 +121,7 @@ export class WeaponRenderer {
       texture.magFilter = THREE.NearestFilter;
       texture.minFilter = THREE.NearestFilter;
       // flipY defaults to true, which is correct for DOOM patches
+      texture.colorSpace = THREE.SRGBColorSpace;
       texture.needsUpdate = true;
 
       const cached: CachedWeaponSprite = {
@@ -217,12 +218,11 @@ export class WeaponRenderer {
     // Scale the weapon 1:1 with sprite pixels.
     this.weaponMesh.scale.set(sprite.width, sprite.height, 1);
 
-    // Keep the weapon centered at the bottom of the 320x200 view.
-    // The previous patch-offset math was pushing the sprite off-screen.
-    const bobX = Math.sin(this.animationTimer * 0.2) * Math.min(4, this.bobOffset * 0.08);
-    const bobY = Math.min(6, this.bobOffset * 0.12);
+    const bobPhase = this.animationTimer * 0.35;
+    const bobX = Math.sin(bobPhase) * Math.min(6, this.bobOffset * 0.08);
+    const bobY = Math.abs(Math.cos(bobPhase)) * Math.min(8, this.bobOffset * 0.12);
     const xPos = 160 + bobX;
-    const yPos = sprite.height * 0.5 + 18 + bobY;
+    const yPos = (sprite.height * 0.5) + 40 + bobY;
 
     this.weaponMesh.position.set(xPos, yPos, 0);
   }
