@@ -9,9 +9,10 @@ import { findSectorAtPoint } from '../level';
 import type { Fixed } from '../core';
 import { FixedToFloat, FloatToFixed } from '../core/fixed';
 import { ML_BLOCKING, ML_TWOSIDED } from '../level/types';
+import { MAXSTEPHEIGHT } from './constants';
 
 // Maximum step height in DOOM units
-const MAX_STEP_HEIGHT = 24;
+const MAX_STEP_HEIGHT = FixedToFloat(MAXSTEPHEIGHT);
 
 /**
  * Check if a circle intersects with a line segment
@@ -46,6 +47,54 @@ function circleLineIntersection(
   return distance < radius;
 }
 
+interface LineOpening {
+  openTop: number;
+  openBottom: number;
+}
+
+function getLineOpening(linedef: MapData['linedefs'][number], mapData: MapData): LineOpening | null {
+  const frontSide = linedef.sidenum[0];
+  const backSide = linedef.sidenum[1];
+  if (frontSide === -1 || backSide === -1) {
+    return null;
+  }
+
+  const frontSector = mapData.sectors[mapData.sidedefs[frontSide].sector];
+  const backSector = mapData.sectors[mapData.sidedefs[backSide].sector];
+  if (!frontSector || !backSector) {
+    return null;
+  }
+
+  return {
+    openTop: Math.min(frontSector.ceilingheight, backSector.ceilingheight),
+    openBottom: Math.max(frontSector.floorheight, backSector.floorheight),
+  };
+}
+
+function canFitThroughLine(mobj: Mobj, linedef: MapData['linedefs'][number], mapData: MapData): boolean {
+  const opening = getLineOpening(linedef, mapData);
+  if (!opening) {
+    return false;
+  }
+
+  const currentZ = FixedToFloat(mobj.z);
+  const thingHeight = FixedToFloat(mobj.height);
+
+  if (opening.openTop - opening.openBottom < thingHeight) {
+    return false;
+  }
+
+  if (opening.openTop - currentZ < thingHeight) {
+    return false;
+  }
+
+  if (opening.openBottom - currentZ > MAX_STEP_HEIGHT) {
+    return false;
+  }
+
+  return true;
+}
+
 /**
  * Check if new position collides with walls
  * Returns true if movement is allowed, false if blocked
@@ -78,6 +127,9 @@ export function checkWallCollision(
       if (circleLineIntersection(x, y, radius, v1.x, v1.y, v2.x, v2.y)) {
         return false; // Blocked
       }
+    } else if (circleLineIntersection(x, y, radius, v1.x, v1.y, v2.x, v2.y) &&
+               !canFitThroughLine(mobj, linedef, mapData)) {
+      return false; // Opening is too small or too low
     }
   }
 

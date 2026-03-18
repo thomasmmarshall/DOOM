@@ -113,7 +113,7 @@ export function applyZMomentum(mobj: Mobj): void {
   }
 
   if (mobj.z + mobj.height > mobj.ceilingz) {
-    mobj.z = mobj.ceilingz - mobj.height;
+    mobj.z = Math.max(mobj.floorz, mobj.ceilingz - mobj.height);
     mobj.momz = 0;
   }
 }
