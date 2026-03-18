@@ -10,28 +10,38 @@ export class FlatLoader {
   static readonly FLAT_SIZE = 64 * 64; // 4096 bytes
 
   /**
-   * Decode flat to RGBA using palette
-   * Flats are simple: just 4096 bytes of palette indices in row-major order
+   * Decode flat to indexed pixels.
    */
-  static decodeFlat(data: ArrayBuffer, palette: Uint8ClampedArray): Uint8ClampedArray {
+  static decodeFlatIndexed(data: ArrayBuffer): { pixels: Uint8Array; opaque: Uint8Array } {
     if (data.byteLength !== this.FLAT_SIZE) {
       throw new Error(
         `Invalid flat size: expected ${this.FLAT_SIZE}, got ${data.byteLength}`
       );
     }
 
-    const indexed = new Uint8Array(data);
+    return {
+      pixels: new Uint8Array(data),
+      opaque: new Uint8Array(this.FLAT_SIZE).fill(255),
+    };
+  }
+
+  /**
+   * Decode flat to RGBA using palette
+   * Flats are simple: just 4096 bytes of palette indices in row-major order
+   */
+  static decodeFlat(data: ArrayBuffer, palette: Uint8ClampedArray): Uint8ClampedArray {
+    const { pixels, opaque } = this.decodeFlatIndexed(data);
     const rgba = new Uint8ClampedArray(this.FLAT_SIZE * 4);
 
     for (let i = 0; i < this.FLAT_SIZE; i++) {
-      const paletteIndex = indexed[i];
+      const paletteIndex = pixels[i];
       const srcOffset = paletteIndex * 4;
       const dstOffset = i * 4;
 
-      rgba[dstOffset] = palette[srcOffset]; // R
-      rgba[dstOffset + 1] = palette[srcOffset + 1]; // G
-      rgba[dstOffset + 2] = palette[srcOffset + 2]; // B
-      rgba[dstOffset + 3] = palette[srcOffset + 3]; // A
+      rgba[dstOffset] = palette[srcOffset];
+      rgba[dstOffset + 1] = palette[srcOffset + 1];
+      rgba[dstOffset + 2] = palette[srcOffset + 2];
+      rgba[dstOffset + 3] = opaque[i];
     }
 
     return rgba;

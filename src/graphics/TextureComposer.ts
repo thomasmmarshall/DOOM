@@ -5,7 +5,7 @@
  */
 
 import type { WADReader } from '../wad';
-import type { MapTexture, TexturePatch, DecodedPatch } from './types';
+import type { MapTexture, TexturePatch, IndexedGraphic } from './types';
 import { PatchDecoder } from './PatchDecoder';
 
 export class TextureComposer {
@@ -131,19 +131,15 @@ export class TextureComposer {
   /**
    * Compose a texture from its patch definitions
    */
-  composeTexture(name: string, palette: Uint8ClampedArray): DecodedPatch | null {
+  composeTexture(name: string): IndexedGraphic | null {
     const textureDef = this.textures.get(name.toUpperCase());
     if (!textureDef) {
       return null;
     }
 
-    // Create blank RGBA buffer
-    const pixels = new Uint8ClampedArray(textureDef.width * textureDef.height * 4);
-
-    // Initialize all pixels to transparent
-    for (let i = 3; i < pixels.length; i += 4) {
-      pixels[i] = 0; // Alpha = 0 (transparent)
-    }
+    const pixelCount = textureDef.width * textureDef.height;
+    const pixels = new Uint8Array(pixelCount);
+    const opaque = new Uint8Array(pixelCount);
 
     // Composite each patch onto the texture
     for (const patchRef of textureDef.patches) {
@@ -162,11 +158,18 @@ export class TextureComposer {
       }
 
       try {
-        // Decode patch
-        const patch = PatchDecoder.decodePatch(patchData, palette);
+        const patch = PatchDecoder.decodePatchGraphic(patchData);
 
         // Composite patch onto texture at specified origin
-        this.compositePatch(pixels, textureDef.width, textureDef.height, patch, patchRef.originx, patchRef.originy);
+        this.compositePatch(
+          pixels,
+          opaque,
+          textureDef.width,
+          textureDef.height,
+          patch,
+          patchRef.originx,
+          patchRef.originy
+        );
       } catch (error) {
         console.warn(`Failed to decode patch ${patchName}:`, error);
       }
@@ -178,6 +181,7 @@ export class TextureComposer {
       leftoffset: 0,
       topoffset: 0,
       pixels,
+      opaque,
     };
   }
 
@@ -185,10 +189,11 @@ export class TextureComposer {
    * Composite a patch onto a texture buffer
    */
   private compositePatch(
-    destPixels: Uint8ClampedArray,
+    destPixels: Uint8Array,
+    destOpaque: Uint8Array,
     destWidth: number,
     destHeight: number,
-    patch: DecodedPatch,
+    patch: IndexedGraphic,
     originX: number,
     originY: number
   ): void {
@@ -202,18 +207,13 @@ export class TextureComposer {
           continue;
         }
 
-        const srcOffset = (y * patch.width + x) * 4;
-        const destOffset = (destY * destWidth + destX) * 4;
-
-        // Get source pixel
-        const alpha = patch.pixels[srcOffset + 3];
+        const srcOffset = y * patch.width + x;
+        const destOffset = destY * destWidth + destX;
 
         // Only copy non-transparent pixels
-        if (alpha > 0) {
-          destPixels[destOffset] = patch.pixels[srcOffset];     // R
-          destPixels[destOffset + 1] = patch.pixels[srcOffset + 1]; // G
-          destPixels[destOffset + 2] = patch.pixels[srcOffset + 2]; // B
-          destPixels[destOffset + 3] = alpha;                        // A
+        if (patch.opaque[srcOffset] > 0) {
+          destPixels[destOffset] = patch.pixels[srcOffset];
+          destOpaque[destOffset] = 255;
         }
       }
     }

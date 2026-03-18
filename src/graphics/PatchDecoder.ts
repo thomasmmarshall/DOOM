@@ -4,7 +4,7 @@
  * Based on linuxdoom-1.10/r_data.c and r_defs.h
  */
 
-import type { PatchHeader, Post, DecodedPatch } from './types';
+import type { PatchHeader, Post, DecodedPatch, IndexedGraphic } from './types';
 
 export class PatchDecoder {
   /**
@@ -85,12 +85,15 @@ export class PatchDecoder {
   static decodePatchIndexed(data: ArrayBuffer): {
     header: PatchHeader;
     pixels: Uint8Array;
+    opaque: Uint8Array;
   } {
     const header = this.parsePatchHeader(data);
     const bytes = new Uint8Array(data);
 
-    // Initialize pixel buffer (0 = transparent)
+    // Store palette indices and explicit opacity separately so palette index 0
+    // can still render as a visible color when the source post contains it.
     const pixels = new Uint8Array(header.width * header.height);
+    const opaque = new Uint8Array(header.width * header.height);
 
     // Decode each column
     for (let x = 0; x < header.width; x++) {
@@ -103,12 +106,47 @@ export class PatchDecoder {
           const y = post.topdelta + i;
           if (y >= 0 && y < header.height) {
             pixels[y * header.width + x] = post.data[i];
+            opaque[y * header.width + x] = 255;
           }
         }
       }
     }
 
-    return { header, pixels };
+    return { header, pixels, opaque };
+  }
+
+  static decodePatchGraphic(data: ArrayBuffer): IndexedGraphic {
+    const { header, pixels, opaque } = this.decodePatchIndexed(data);
+
+    return {
+      width: header.width,
+      height: header.height,
+      leftoffset: header.leftoffset,
+      topoffset: header.topoffset,
+      pixels,
+      opaque,
+    };
+  }
+
+  static indexedToRgba(
+    pixels: Uint8Array,
+    opaque: Uint8Array,
+    palette: Uint8ClampedArray
+  ): Uint8ClampedArray {
+    const rgba = new Uint8ClampedArray(pixels.length * 4);
+
+    for (let i = 0; i < pixels.length; i++) {
+      const paletteIndex = pixels[i];
+      const srcOffset = paletteIndex * 4;
+      const dstOffset = i * 4;
+
+      rgba[dstOffset] = palette[srcOffset];
+      rgba[dstOffset + 1] = palette[srcOffset + 1];
+      rgba[dstOffset + 2] = palette[srcOffset + 2];
+      rgba[dstOffset + 3] = opaque[i];
+    }
+
+    return rgba;
   }
 
   /**
@@ -118,27 +156,14 @@ export class PatchDecoder {
    * @returns DecodedPatch with RGBA pixels
    */
   static decodePatch(data: ArrayBuffer, palette: Uint8ClampedArray): DecodedPatch {
-    const { header, pixels } = this.decodePatchIndexed(data);
-
-    // Convert indexed pixels to RGBA
-    const rgba = new Uint8ClampedArray(header.width * header.height * 4);
-
-    for (let i = 0; i < pixels.length; i++) {
-      const paletteIndex = pixels[i];
-      const srcOffset = paletteIndex * 4;
-      const dstOffset = i * 4;
-
-      rgba[dstOffset] = palette[srcOffset]; // R
-      rgba[dstOffset + 1] = palette[srcOffset + 1]; // G
-      rgba[dstOffset + 2] = palette[srcOffset + 2]; // B
-      rgba[dstOffset + 3] = palette[srcOffset + 3]; // A
-    }
+    const indexed = this.decodePatchGraphic(data);
+    const rgba = this.indexedToRgba(indexed.pixels, indexed.opaque, palette);
 
     return {
-      width: header.width,
-      height: header.height,
-      leftoffset: header.leftoffset,
-      topoffset: header.topoffset,
+      width: indexed.width,
+      height: indexed.height,
+      leftoffset: indexed.leftoffset,
+      topoffset: indexed.topoffset,
       pixels: rgba,
     };
   }

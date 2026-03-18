@@ -43,6 +43,18 @@ export interface Column {
 }
 
 /**
+ * Decoded indexed graphic data
+ */
+export interface IndexedGraphic {
+  width: number;
+  height: number;
+  leftoffset: number;
+  topoffset: number;
+  pixels: Uint8Array; // Palette indices
+  opaque: Uint8Array; // 0 = transparent, 255 = opaque
+}
+
+/**
  * Decoded patch data (RGBA)
  */
 export interface DecodedPatch {

@@ -6,11 +6,15 @@
 import * as THREE from 'three';
 import type { WADReader } from '../wad';
 import { PatchDecoder, FlatLoader, TextureComposer } from '../graphics';
-import type { DecodedPatch } from '../graphics';
-import { lightLevelToBrightness } from './doomLighting';
+import type { Colormap, IndexedGraphic, Palette } from '../graphics';
+import {
+  applyDoomIndexedMaterial,
+  createDoomPaletteResources,
+  type DoomPaletteResources,
+} from './doomLighting';
 
 export interface TextureInfo {
-  texture: THREE.CanvasTexture;
+  texture: THREE.Texture;
   width: number;
   height: number;
   masked: boolean;
@@ -18,20 +22,26 @@ export interface TextureInfo {
 
 export class TextureManager {
   private wad: WADReader;
-  private palette: Uint8ClampedArray;
+  private palette: Palette;
+  private paletteResources: DoomPaletteResources;
   private textureCache: Map<string, TextureInfo>;
   private flatCache: Map<string, TextureInfo>;
   private textureComposer: TextureComposer;
   private initialized: boolean = false;
   private flatNames: Set<string>;
+  private missingTextureIndex: number;
+  private missingDarkIndex: number;
 
-  constructor(wad: WADReader, palette: Uint8ClampedArray) {
+  constructor(wad: WADReader, palette: Palette, colormap: Colormap) {
     this.wad = wad;
     this.palette = palette;
+    this.paletteResources = createDoomPaletteResources(palette, colormap);
     this.textureCache = new Map();
     this.flatCache = new Map();
     this.textureComposer = new TextureComposer(wad);
     this.flatNames = new Set();
+    this.missingTextureIndex = this.findClosestPaletteIndex(255, 0, 255);
+    this.missingDarkIndex = this.findClosestPaletteIndex(0, 0, 0);
   }
 
   /**
@@ -77,7 +87,7 @@ export class TextureManager {
   /**
    * Get or load a wall texture
    */
-  getTexture(name: string): THREE.CanvasTexture | null {
+  getTexture(name: string): THREE.Texture | null {
     return this.getTextureInfo(name)?.texture ?? null;
   }
 
@@ -96,12 +106,12 @@ export class TextureManager {
       return null;
     }
 
-    let decoded: DecodedPatch | null = null;
+    let decoded: IndexedGraphic | null = null;
     let masked = false;
 
     // First, try composite texture (TEXTURE1/TEXTURE2)
     if (this.textureComposer.hasTexture(upperName)) {
-      decoded = this.textureComposer.composeTexture(upperName, this.palette);
+      decoded = this.textureComposer.composeTexture(upperName);
       masked = this.textureComposer.getTexture(upperName)?.masked ?? false;
     }
 
@@ -110,7 +120,7 @@ export class TextureManager {
       const patchData = this.wad.readLump(upperName);
       if (patchData) {
         try {
-          decoded = PatchDecoder.decodePatch(patchData, this.palette);
+          decoded = PatchDecoder.decodePatchGraphic(patchData);
         } catch (error) {
           console.warn(`Failed to decode patch ${upperName}:`, error);
         }
@@ -122,18 +132,8 @@ export class TextureManager {
       return this.createMissingTexture(upperName);
     }
 
-    // Create canvas and texture
-    const canvas = this.patchToCanvas(decoded);
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.magFilter = THREE.NearestFilter;
-    texture.minFilter = THREE.NearestFilter;
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.RepeatWrapping;
-    texture.needsUpdate = true;
-    texture.colorSpace = THREE.SRGBColorSpace;
-
     const info: TextureInfo = {
-      texture,
+      texture: this.createIndexedTexture(decoded, THREE.RepeatWrapping, THREE.RepeatWrapping),
       width: decoded.width,
       height: decoded.height,
       masked,
@@ -144,47 +144,30 @@ export class TextureManager {
   }
 
   /**
-   * Create a canvas from decoded patch
-   */
-  private patchToCanvas(patch: DecodedPatch): HTMLCanvasElement {
-    const canvas = document.createElement('canvas');
-    canvas.width = patch.width;
-    canvas.height = patch.height;
-
-    const ctx = canvas.getContext('2d')!;
-    const imageData = ctx.createImageData(patch.width, patch.height);
-    imageData.data.set(patch.pixels);
-    ctx.putImageData(imageData, 0, 0);
-
-    return canvas;
-  }
-
-  /**
    * Create a placeholder texture for missing textures
    */
   private createMissingTexture(name: string): TextureInfo {
-    const canvas = document.createElement('canvas');
-    canvas.width = 64;
-    canvas.height = 64;
+    const width = 64;
+    const height = 64;
+    const pixels = new Uint8Array(width * height);
+    const opaque = new Uint8Array(width * height).fill(255);
 
-    const ctx = canvas.getContext('2d')!;
-    ctx.fillStyle = '#FF00FF'; // Magenta for missing textures
-    ctx.fillRect(0, 0, 64, 64);
-    ctx.fillStyle = '#000000';
-    ctx.font = '10px monospace';
-    ctx.fillText('MISSING', 4, 32);
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.magFilter = THREE.NearestFilter;
-    texture.minFilter = THREE.NearestFilter;
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.RepeatWrapping;
-    texture.colorSpace = THREE.SRGBColorSpace;
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const index = (y * width) + x;
+        const usePrimary = ((Math.floor(x / 8) + Math.floor(y / 8)) % 2) === 0;
+        pixels[index] = usePrimary ? this.missingTextureIndex : this.missingDarkIndex;
+      }
+    }
 
     const info: TextureInfo = {
-      texture,
-      width: 64,
-      height: 64,
+      texture: this.createIndexedTexture(
+        { width, height, leftoffset: 0, topoffset: 0, pixels, opaque },
+        THREE.RepeatWrapping,
+        THREE.RepeatWrapping
+      ),
+      width,
+      height,
       masked: false,
     };
 
@@ -195,7 +178,7 @@ export class TextureManager {
   /**
    * Get or load a flat (floor/ceiling) texture
    */
-  getFlat(name: string): THREE.CanvasTexture | null {
+  getFlat(name: string): THREE.Texture | null {
     return this.getFlatInfo(name)?.texture ?? null;
   }
 
@@ -231,25 +214,23 @@ export class TextureManager {
     }
 
     try {
-      const canvas = FlatLoader.flatToCanvas(flatData, this.palette);
-
-      if (!canvas || canvas.width === 0 || canvas.height === 0) {
-        console.error(`Flat ${upperName} has invalid dimensions`);
-        return this.createMissingFlat(upperName);
-      }
-
-      const texture = new THREE.CanvasTexture(canvas);
-      texture.magFilter = THREE.NearestFilter;
-      texture.minFilter = THREE.NearestFilter;
-      texture.wrapS = THREE.RepeatWrapping;
-      texture.wrapT = THREE.RepeatWrapping;
-      texture.needsUpdate = true; // Ensure THREE.js knows to upload the texture
-      texture.colorSpace = THREE.SRGBColorSpace;
+      const { pixels, opaque } = FlatLoader.decodeFlatIndexed(flatData);
 
       const info: TextureInfo = {
-        texture,
-        width: canvas.width,
-        height: canvas.height,
+        texture: this.createIndexedTexture(
+          {
+            width: FlatLoader.FLAT_WIDTH,
+            height: FlatLoader.FLAT_HEIGHT,
+            leftoffset: 0,
+            topoffset: 0,
+            pixels,
+            opaque,
+          },
+          THREE.RepeatWrapping,
+          THREE.RepeatWrapping
+        ),
+        width: FlatLoader.FLAT_WIDTH,
+        height: FlatLoader.FLAT_HEIGHT,
         masked: false,
       };
 
@@ -265,35 +246,27 @@ export class TextureManager {
    * Create a placeholder flat for missing flats
    */
   private createMissingFlat(name: string): TextureInfo {
-    const canvas = document.createElement('canvas');
-    canvas.width = 64;
-    canvas.height = 64;
+    const width = 64;
+    const height = 64;
+    const pixels = new Uint8Array(width * height);
+    const opaque = new Uint8Array(width * height).fill(255);
 
-    const ctx = canvas.getContext('2d')!;
-
-    // Create a checkerboard pattern
-    ctx.fillStyle = '#808080'; // Gray
-    ctx.fillRect(0, 0, 64, 64);
-    ctx.fillStyle = '#404040'; // Darker gray
-    for (let y = 0; y < 64; y += 8) {
-      for (let x = 0; x < 64; x += 8) {
-        if ((x + y) % 16 === 0) {
-          ctx.fillRect(x, y, 8, 8);
-        }
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const index = (y * width) + x;
+        const usePrimary = ((Math.floor(x / 8) + Math.floor(y / 8)) % 2) === 0;
+        pixels[index] = usePrimary ? this.missingDarkIndex : this.missingTextureIndex;
       }
     }
 
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.magFilter = THREE.NearestFilter;
-    texture.minFilter = THREE.NearestFilter;
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.RepeatWrapping;
-    texture.colorSpace = THREE.SRGBColorSpace;
-
     const info: TextureInfo = {
-      texture,
-      width: 64,
-      height: 64,
+      texture: this.createIndexedTexture(
+        { width, height, leftoffset: 0, topoffset: 0, pixels, opaque },
+        THREE.RepeatWrapping,
+        THREE.RepeatWrapping
+      ),
+      width,
+      height,
       masked: false,
     };
 
@@ -304,17 +277,27 @@ export class TextureManager {
   /**
    * Create material for a wall with light level
    */
-  createWallMaterial(textureName: string, lightLevel: number, transparent: boolean = false): THREE.MeshBasicMaterial {
+  createWallMaterial(
+    textureName: string,
+    lightLevel: number,
+    transparent: boolean = false,
+    fakeContrast: number = 0
+  ): THREE.MeshBasicMaterial {
     const texture = this.getTexture(textureName);
-    const brightness = lightLevelToBrightness(lightLevel);
 
     const material = new THREE.MeshBasicMaterial({
       map: texture,
-      color: new THREE.Color(brightness, brightness, brightness),
+      color: 0xffffff,
       transparent: transparent,
       alphaTest: transparent ? 0.5 : 0,
       side: THREE.DoubleSide,
       depthWrite: !transparent,
+    });
+    applyDoomIndexedMaterial(material, {
+      paletteResources: this.paletteResources,
+      lightLevel,
+      fakeContrast,
+      useDistanceLighting: true,
     });
 
     return material;
@@ -325,7 +308,6 @@ export class TextureManager {
    */
   createFlatMaterial(flatName: string, lightLevel: number): THREE.MeshBasicMaterial {
     const texture = this.getFlat(flatName);
-    const brightness = lightLevelToBrightness(lightLevel);
 
     if (!texture) {
       console.error(`No texture for flat "${flatName}" - using magenta placeholder`);
@@ -338,8 +320,34 @@ export class TextureManager {
 
     const material = new THREE.MeshBasicMaterial({
       map: texture,
-      color: new THREE.Color(brightness, brightness, brightness),
+      color: 0xffffff,
       side: THREE.DoubleSide,
+    });
+    applyDoomIndexedMaterial(material, {
+      paletteResources: this.paletteResources,
+      lightLevel,
+      useDistanceLighting: true,
+      distanceScale: 80,
+      distanceOffset: 0,
+    });
+
+    return material;
+  }
+
+  createSkyMaterial(textureName: string): THREE.MeshBasicMaterial {
+    const texture = this.getTexture(textureName);
+    const material = new THREE.MeshBasicMaterial({
+      map: texture,
+      side: THREE.BackSide,
+      depthWrite: false,
+      fog: false,
+      color: 0xffffff,
+    });
+    applyDoomIndexedMaterial(material, {
+      paletteResources: this.paletteResources,
+      lightLevel: 255,
+      useDistanceLighting: false,
+      fullBright: true,
     });
 
     return material;
@@ -369,5 +377,59 @@ export class TextureManager {
 
     this.textureCache.clear();
     this.flatCache.clear();
+    this.paletteResources.paletteTexture.dispose();
+    this.paletteResources.colormapTexture.dispose();
+  }
+
+  getPaletteResources(): DoomPaletteResources {
+    return this.paletteResources;
+  }
+
+  private createIndexedTexture(
+    graphic: IndexedGraphic,
+    wrapS: THREE.Wrapping,
+    wrapT: THREE.Wrapping
+  ): THREE.DataTexture {
+    const data = new Uint8Array(graphic.width * graphic.height * 4);
+
+    for (let i = 0; i < graphic.pixels.length; i++) {
+      const dstOffset = i * 4;
+      data[dstOffset] = graphic.pixels[i];
+      data[dstOffset + 3] = graphic.opaque[i];
+    }
+
+    const texture = new THREE.DataTexture(
+      data,
+      graphic.width,
+      graphic.height,
+      THREE.RGBAFormat,
+      THREE.UnsignedByteType
+    );
+    texture.magFilter = THREE.NearestFilter;
+    texture.minFilter = THREE.NearestFilter;
+    texture.wrapS = wrapS;
+    texture.wrapT = wrapT;
+    texture.flipY = true;
+    texture.needsUpdate = true;
+    return texture;
+  }
+
+  private findClosestPaletteIndex(r: number, g: number, b: number): number {
+    let bestIndex = 0;
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    for (let i = 0; i < 256; i++) {
+      const dr = this.palette[i * 3] - r;
+      const dg = this.palette[(i * 3) + 1] - g;
+      const db = this.palette[(i * 3) + 2] - b;
+      const distance = (dr * dr) + (dg * dg) + (db * db);
+
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = i;
+      }
+    }
+
+    return bestIndex;
   }
 }

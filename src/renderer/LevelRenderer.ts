@@ -14,7 +14,13 @@ import { SkyRenderer } from './SkyRenderer';
 import { BSPRenderer } from './BSPRenderer';
 import { SpriteRenderer } from './SpriteRenderer';
 import type { Mobj } from '../game';
-import { getWallFakeContrast, lightLevelToBrightness } from './doomLighting';
+import type { Colormap, Palette } from '../graphics';
+import {
+  getWallFakeContrast,
+  isSkyFlat,
+  selectSkyTexture,
+  updateDoomIndexedMaterialLight,
+} from './doomLighting';
 
 interface WallMeshInfo {
   mesh: THREE.Mesh;
@@ -47,17 +53,18 @@ export class LevelRenderer {
   constructor(
     scene: THREE.Scene,
     wad: WADReader,
-    palette: Uint8ClampedArray,
+    palette: Palette,
+    colormap: Colormap,
     mapData: MapData
   ) {
     this.scene = scene;
-    this.textureManager = new TextureManager(wad, palette);
+    this.textureManager = new TextureManager(wad, palette, colormap);
     this.mapData = mapData;
     this.bspRenderer = new BSPRenderer(mapData);
     this.sectorMeshes = new Map();
     this.wallMeshes = [];
     this.wallMeshInfo = [];
-    this.spriteRenderer = new SpriteRenderer(scene, wad, palette);
+    this.spriteRenderer = new SpriteRenderer(scene, wad, this.textureManager.getPaletteResources());
     this.skyRenderer = new SkyRenderer();
   }
 
@@ -76,10 +83,12 @@ export class LevelRenderer {
 
     for (const wall of walls) {
       const textureInfo = this.textureManager.getTextureInfo(wall.textureName);
+      const fakeContrast = getWallFakeContrast(wall.lineDx, wall.lineDy);
       const material = this.textureManager.createWallMaterial(
         wall.textureName,
-        wall.lightLevel + getWallFakeContrast(wall.lineDx, wall.lineDy),
-        wall.masked || Boolean(textureInfo?.masked)
+        wall.lightLevel,
+        wall.masked || Boolean(textureInfo?.masked),
+        fakeContrast
       );
 
       const mesh = new THREE.Mesh(wall.geometry, material);
@@ -88,7 +97,7 @@ export class LevelRenderer {
         wall.geometry,
         wall,
         textureInfo ?? {
-          texture: material.map as THREE.CanvasTexture,
+          texture: material.map as THREE.Texture,
           width: 64,
           height: 64,
           masked: false,
@@ -122,7 +131,7 @@ export class LevelRenderer {
       const meshes: THREE.Mesh[] = [];
 
       // Floor
-      if (sector.floorGeometry && sector.floorTexture !== 'F_SKY1') {
+      if (sector.floorGeometry && !isSkyFlat(sector.floorTexture)) {
         const floorMaterial = this.textureManager.createFlatMaterial(
           sector.floorTexture,
           sector.lightLevel
@@ -134,7 +143,7 @@ export class LevelRenderer {
       }
 
       // Ceiling
-      if (sector.ceilingGeometry && sector.ceilingTexture !== 'F_SKY1') {
+      if (sector.ceilingGeometry && !isSkyFlat(sector.ceilingTexture)) {
         const ceilingMaterial = this.textureManager.createFlatMaterial(
           sector.ceilingTexture,
           sector.lightLevel
@@ -157,8 +166,12 @@ export class LevelRenderer {
   /**
    * Add sky to scene
    */
-  addSky(wad: WADReader, palette: Uint8ClampedArray): void {
-    const sky = this.skyRenderer.createSky(wad, palette, 'SKY1');
+  addSky(): void {
+    const skyName = selectSkyTexture(this.mapData.name);
+    const sky = this.skyRenderer.createSky(
+      this.textureManager.createSkyMaterial(skyName),
+      skyName
+    );
     if (sky) {
       this.scene.add(sky);
       console.log('Sky added');
@@ -277,13 +290,20 @@ export class LevelRenderer {
     return this.spriteRenderer;
   }
 
+  isSkyCeilingAtPoint(x: number, y: number): boolean {
+    const sectorIndex = findSectorAtPoint(x, y, this.mapData);
+    if (sectorIndex < 0) {
+      return false;
+    }
+
+    return isSkyFlat(this.mapData.sectors[sectorIndex].ceilingpic);
+  }
+
   updateSectorLight(sectorIndex: number, lightLevel: number): void {
     const meshes = this.sectorMeshes.get(sectorIndex);
     if (meshes) {
-      const brightness = lightLevelToBrightness(lightLevel);
       for (const mesh of meshes) {
-        const material = mesh.material as THREE.MeshBasicMaterial;
-        material.color.setRGB(brightness, brightness, brightness);
+        updateDoomIndexedMaterialLight(mesh.material as THREE.Material, lightLevel);
       }
     }
 
@@ -300,12 +320,11 @@ export class LevelRenderer {
         continue;
       }
 
-      const brightness = lightLevelToBrightness(
+      updateDoomIndexedMaterialLight(
+        info.mesh.material as THREE.Material,
         lightLevel,
         getWallFakeContrast(info.lineDx, info.lineDy)
       );
-      const material = info.mesh.material as THREE.MeshBasicMaterial;
-      material.color.setRGB(brightness, brightness, brightness);
     }
   }
 

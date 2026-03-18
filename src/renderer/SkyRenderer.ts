@@ -5,8 +5,6 @@
  */
 
 import * as THREE from 'three';
-import type { WADReader } from '../wad';
-import { PatchDecoder } from '../graphics';
 
 export class SkyRenderer {
   private mesh: THREE.Mesh | null = null;
@@ -15,31 +13,15 @@ export class SkyRenderer {
    * Create sky cylinder from DOOM sky texture
    */
   createSky(
-    wad: WADReader,
-    palette: Uint8ClampedArray,
+    material: THREE.MeshBasicMaterial,
     skyName: string = 'SKY1'
   ): THREE.Mesh | null {
-    const skyData = wad.readLump(skyName);
-    if (!skyData) {
-      console.warn(`Sky texture ${skyName} not found`);
-      return null;
-    }
-
     try {
-      // Decode sky patch
-      const decoded = PatchDecoder.decodePatch(skyData, palette);
-      const canvas = PatchDecoder.patchToCanvas(decoded);
-
-      console.log(`Sky texture ${skyName} decoded: ${canvas.width}x${canvas.height}`);
-
-      // Create texture
-      const texture = new THREE.CanvasTexture(canvas);
-      texture.magFilter = THREE.NearestFilter;
-      texture.minFilter = THREE.NearestFilter;
-      texture.wrapS = THREE.RepeatWrapping;
-      texture.wrapT = THREE.ClampToEdgeWrapping;
-      texture.needsUpdate = true;
-      texture.colorSpace = THREE.SRGBColorSpace;
+      if (material.map) {
+        material.map.wrapS = THREE.RepeatWrapping;
+        material.map.wrapT = THREE.ClampToEdgeWrapping;
+        material.map.needsUpdate = true;
+      }
 
       // Create sky cylinder - large enough to always be in background
       // but will follow camera position
@@ -64,13 +46,6 @@ export class SkyRenderer {
         uvAttribute.setX(i, u);
       }
       uvAttribute.needsUpdate = true;
-
-      const material = new THREE.MeshBasicMaterial({
-        map: texture,
-        side: THREE.BackSide,
-        depthWrite: false,
-        fog: false,
-      });
 
       this.mesh = new THREE.Mesh(geometry, material);
       this.mesh.renderOrder = -1000;

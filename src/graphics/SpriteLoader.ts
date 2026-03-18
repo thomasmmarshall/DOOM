@@ -7,6 +7,7 @@
 import * as THREE from 'three';
 import type { WADReader } from '../wad';
 import { PatchDecoder } from './PatchDecoder';
+import type { IndexedGraphic } from './types';
 
 interface SpriteDirectoryEntry {
   lumpName: string;
@@ -14,7 +15,7 @@ interface SpriteDirectoryEntry {
 }
 
 export interface LoadedSpriteFrame {
-  texture: THREE.CanvasTexture;
+  texture: THREE.Texture;
   width: number;
   height: number;
   leftoffset: number;
@@ -23,13 +24,11 @@ export interface LoadedSpriteFrame {
 
 export class SpriteLoader {
   private wad: WADReader;
-  private palette: Uint8ClampedArray;
   private spriteCache: Map<string, LoadedSpriteFrame>;
   private spriteDirectory: Map<string, SpriteDirectoryEntry>;
 
-  constructor(wad: WADReader, palette: Uint8ClampedArray) {
+  constructor(wad: WADReader) {
     this.wad = wad;
-    this.palette = palette;
     this.spriteCache = new Map();
     this.spriteDirectory = new Map();
     this.buildSpriteDirectory();
@@ -110,23 +109,61 @@ export class SpriteLoader {
     return null;
   }
 
-  private createTextureCanvas(
-    source: HTMLCanvasElement,
+  private mirrorGraphic(source: IndexedGraphic): IndexedGraphic {
+    const pixels = new Uint8Array(source.pixels.length);
+    const opaque = new Uint8Array(source.opaque.length);
+
+    for (let y = 0; y < source.height; y++) {
+      for (let x = 0; x < source.width; x++) {
+        const srcIndex = (y * source.width) + x;
+        const dstIndex = (y * source.width) + (source.width - x - 1);
+        pixels[dstIndex] = source.pixels[srcIndex];
+        opaque[dstIndex] = source.opaque[srcIndex];
+      }
+    }
+
+    return {
+      width: source.width,
+      height: source.height,
+      leftoffset: source.leftoffset,
+      topoffset: source.topoffset,
+      pixels,
+      opaque,
+    };
+  }
+
+  private createTexture(graphic: IndexedGraphic): THREE.DataTexture {
+    const data = new Uint8Array(graphic.width * graphic.height * 4);
+
+    for (let i = 0; i < graphic.pixels.length; i++) {
+      const dstOffset = i * 4;
+      data[dstOffset] = graphic.pixels[i];
+      data[dstOffset + 3] = graphic.opaque[i];
+    }
+
+    const texture = new THREE.DataTexture(
+      data,
+      graphic.width,
+      graphic.height,
+      THREE.RGBAFormat,
+      THREE.UnsignedByteType
+    );
+    texture.magFilter = THREE.NearestFilter;
+    texture.minFilter = THREE.NearestFilter;
+    texture.flipY = true;
+    texture.needsUpdate = true;
+    return texture;
+  }
+
+  private createGraphic(
+    source: IndexedGraphic,
     mirrored: boolean
-  ): HTMLCanvasElement {
+  ): IndexedGraphic {
     if (!mirrored) {
       return source;
     }
 
-    const canvas = document.createElement('canvas');
-    canvas.width = source.width;
-    canvas.height = source.height;
-
-    const ctx = canvas.getContext('2d')!;
-    ctx.translate(source.width, 0);
-    ctx.scale(-1, 1);
-    ctx.drawImage(source, 0, 0);
-    return canvas;
+    return this.mirrorGraphic(source);
   }
 
   getSpriteFrame(spriteName: string, frame: string, rotation: number): LoadedSpriteFrame | null {
@@ -146,20 +183,14 @@ export class SpriteLoader {
     }
 
     try {
-      const decoded = PatchDecoder.decodePatch(spriteData, this.palette);
-      const baseCanvas = PatchDecoder.patchToCanvas(decoded);
-      const canvas = this.createTextureCanvas(baseCanvas, entry.mirrored);
-      const texture = new THREE.CanvasTexture(canvas);
-      texture.magFilter = THREE.NearestFilter;
-      texture.minFilter = THREE.NearestFilter;
-      texture.format = THREE.RGBAFormat;
-      texture.colorSpace = THREE.SRGBColorSpace;
-      texture.needsUpdate = true;
+      const decoded = PatchDecoder.decodePatchGraphic(spriteData);
+      const graphic = this.createGraphic(decoded, entry.mirrored);
+      const texture = this.createTexture(graphic);
 
       const loaded: LoadedSpriteFrame = {
         texture,
-        width: decoded.width,
-        height: decoded.height,
+        width: graphic.width,
+        height: graphic.height,
         leftoffset: entry.mirrored ? decoded.width - decoded.leftoffset : decoded.leftoffset,
         topoffset: decoded.topoffset,
       };
@@ -179,7 +210,7 @@ export class SpriteLoader {
    * @param name - Sprite lump name
    * @returns THREE.CanvasTexture or null if not found
    */
-  loadSprite(name: string): THREE.CanvasTexture | null {
+  loadSprite(name: string): THREE.Texture | null {
     if (!name || name === '-') return null;
 
     const parsed = this.parseRequest(name);

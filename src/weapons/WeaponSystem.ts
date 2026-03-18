@@ -8,8 +8,10 @@ import type { Mobj } from '../game/mobj';
 import { MobjFlags } from '../game/mobj';
 import { FixedToFloat } from '../core/fixed';
 import type { MapData } from '../level/types';
+import { findSectorAtPoint } from '../level';
 import { checkLineOfSight } from '../physics/LineOfSight';
 import { pRandom } from '../core';
+import { isSkyFlat } from '../renderer/doomLighting';
 
 /**
  * Weapon types
@@ -322,6 +324,9 @@ export function performHitscan(
     distance: range,
     damage,
     hitPoint: { x: startX + dirX * range, y: startY + dirY * range, z: startZ },
+    hitSky: mapData
+      ? isSkyCeilingPoint(startX + dirX * range, startY + dirY * range, mapData)
+      : false,
   };
 }
 
@@ -334,4 +339,14 @@ export interface HitscanResult {
   distance: number;
   damage: number;
   hitPoint: { x: number; y: number; z: number };
+  hitSky?: boolean;
+}
+
+function isSkyCeilingPoint(x: number, y: number, mapData: MapData): boolean {
+  const sectorIndex = findSectorAtPoint(x, y, mapData);
+  if (sectorIndex < 0) {
+    return false;
+  }
+
+  return isSkyFlat(mapData.sectors[sectorIndex].ceilingpic);
 }

@@ -9,7 +9,11 @@ import type { Mobj } from '../game/mobj';
 import { SpriteLoader } from '../graphics/SpriteLoader';
 import type { WADReader } from '../wad';
 import { doomAngleToThreeRadians, doomToThree, FixedToFloat } from '../core';
-import { lightLevelToBrightness } from './doomLighting';
+import {
+  applyDoomIndexedMaterial,
+  type DoomPaletteResources,
+  updateDoomIndexedMaterialLight,
+} from './doomLighting';
 
 export interface SpriteObject {
   mobj: Mobj;
@@ -22,11 +26,13 @@ export class SpriteRenderer {
   private scene: THREE.Scene;
   private spriteLoader: SpriteLoader;
   private spriteObjects: Map<Mobj, SpriteObject>;
+  private paletteResources: DoomPaletteResources;
 
-  constructor(scene: THREE.Scene, wad: WADReader, palette: Uint8ClampedArray) {
+  constructor(scene: THREE.Scene, wad: WADReader, paletteResources: DoomPaletteResources) {
     this.scene = scene;
-    this.spriteLoader = new SpriteLoader(wad, palette);
+    this.spriteLoader = new SpriteLoader(wad);
     this.spriteObjects = new Map();
+    this.paletteResources = paletteResources;
   }
 
   /**
@@ -51,6 +57,13 @@ export class SpriteRenderer {
       transparent: true,
       alphaTest: 0.5, // Discard pixels below this alpha
       depthWrite: true,
+    });
+    applyDoomIndexedMaterial(material, {
+      paletteResources: this.paletteResources,
+      lightLevel: 255,
+      useDistanceLighting: true,
+      distanceScale: 48,
+      fullBright: false,
     });
 
     // Create sprite
@@ -157,9 +170,8 @@ export class SpriteRenderer {
     const spriteObj = this.spriteObjects.get(mobj);
     if (!spriteObj) return;
 
-    const brightness = lightLevelToBrightness(lightLevel);
     const material = spriteObj.sprite.material as THREE.SpriteMaterial;
-    material.color.setRGB(brightness, brightness, brightness);
+    updateDoomIndexedMaterialLight(material, lightLevel);
     spriteObj.lightLevel = lightLevel;
   }
 

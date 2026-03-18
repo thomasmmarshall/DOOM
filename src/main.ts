@@ -282,6 +282,11 @@ class DoomGame {
         throw new Error('PLAYPAL not found');
       }
       const palette = PaletteLoader.loadPalette(playpalData);
+      const colormapData = wad.readLump('COLORMAP');
+      if (!colormapData) {
+        throw new Error('COLORMAP not found');
+      }
+      const colormap = PaletteLoader.loadColormap(colormapData);
       const rgbaPalette = PaletteLoader.paletteToRGBA(palette, 255);
 
       // Find first map
@@ -304,7 +309,7 @@ class DoomGame {
 
       // Create level renderer (need this first for callbacks)
       this.updateInfo(`Building ${mapName} geometry...`);
-      this.levelRenderer = new LevelRenderer(this.scene, wad, rgbaPalette, this.mapData);
+      this.levelRenderer = new LevelRenderer(this.scene, wad, palette, colormap, this.mapData);
 
       // Create weapon renderer and HUD
       this.weaponRenderer = new WeaponRenderer(wad, rgbaPalette);
@@ -329,7 +334,7 @@ class DoomGame {
       // Continue with level building
 
       // Add sky
-      this.levelRenderer.addSky(wad, rgbaPalette);
+      this.levelRenderer.addSky();
 
       // Build level geometry (async - loads textures)
       await this.levelRenderer.buildLevel();

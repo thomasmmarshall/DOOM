@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import type { MapData } from '../level/types';
 import { ML_TWOSIDED, ML_DONTPEGTOP, ML_DONTPEGBOTTOM } from '../level/types';
 import { doomToThree } from '../core';
+import { isSkyFlat } from './doomLighting';
 
 export interface WallSegment {
   geometry: THREE.BufferGeometry;
@@ -74,7 +75,15 @@ export class WallBuilder {
         // Two-sided wall - draw upper, middle (if masked), and lower
 
         // Upper wall (if back ceiling is lower than front ceiling)
-        if (backSector.ceilingheight < frontSector.ceilingheight && frontSide.toptexture !== '-') {
+        const bothSkyCeilings =
+          isSkyFlat(frontSector.ceilingpic) &&
+          isSkyFlat(backSector.ceilingpic);
+
+        if (
+          !bothSkyCeilings &&
+          backSector.ceilingheight < frontSector.ceilingheight &&
+          frontSide.toptexture !== '-'
+        ) {
           const unpegTop = (linedef.flags & ML_DONTPEGTOP) !== 0;
           const wall = this.createWall(
             i,
