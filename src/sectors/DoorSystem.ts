@@ -38,7 +38,7 @@ export interface DoorThinker {
   sectorIndex: number;
   type: DoorType;
   state: DoorState;
-  speed: number;          // Units per tick
+  speed: Fixed;           // Units per tick in fixed-point
   topHeight: Fixed;       // Maximum height when open
   bottomHeight: Fixed;    // Minimum height when closed
   waitTimer: number;      // Ticks to wait when open
@@ -84,9 +84,9 @@ export class DoorManager {
     const topHeight = IntToFixed(findLowestNeighborCeiling(this.mapData, sectorIndex) - 4);
 
     // Door speed based on type
-    let speed = 2; // Normal speed
-    if (type === DoorType.RAISE) speed = 4;
-    if (type === DoorType.BLAZING) speed = 8;
+    let speed = IntToFixed(2); // Normal speed
+    if (type === DoorType.RAISE) speed = IntToFixed(4);
+    if (type === DoorType.BLAZING) speed = IntToFixed(8);
 
     const door: DoorThinker = {
       sectorIndex,
