@@ -95,12 +95,13 @@ export class InputManager {
       cmd.angleturn = -40; // Turn right
     }
 
-    // Mouse turning (very low sensitivity for smooth control)
+    // Mouse turning - match original DOOM sensitivity (default 5)
+    // angleturn << 16 is added to BAM angle; 360° = 0x100000000
+    // 25: ~400px ≈ 55° (full mousepad ≈ 1 turn)
     if (this.mouseLocked && this.mouseX !== 0) {
-      // Mouse movement directly affects turn speed
-      // Negative because mouse right = positive X but we want to turn right (negative angle)
-      cmd.angleturn -= Math.floor(this.mouseX * 2); // Much smaller multiplier
-      this.mouseX = 0; // Reset for next frame
+      const sensitivity = 25;
+      cmd.angleturn -= Math.floor(this.mouseX * sensitivity);
+      this.mouseX = 0;
     }
 
     // Buttons

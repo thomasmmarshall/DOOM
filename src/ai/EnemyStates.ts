@@ -26,12 +26,15 @@ export interface EnemyAI {
   attackCooldown: number;
   painTicks: number;
   animationTicks: number;
+  reactiontime: number; // Ticks before attacking when first seeing target (DOOM: 8)
 }
 
+// DOOM: Imp 8, Shotgun guy 15, Demon 10. We use 8 discrete dirs + movecount;
+// we move every tick in exact direction so use ~1/3 speed to match feel.
 const MONSTER_SPEED: Record<number, number> = {
-  3004: 8,
-  9: 8,
-  3001: 8,
+  3004: 2,  // Imp
+  9: 3,     // Shotgun guy
+  3001: 2,  // Demon
 };
 
 function getEnemyAI(enemy: Mobj): EnemyAI {
@@ -41,6 +44,7 @@ function getEnemyAI(enemy: Mobj): EnemyAI {
       attackCooldown: 0,
       painTicks: 0,
       animationTicks: 0,
+      reactiontime: 0,
     } satisfies EnemyAI;
   }
 
@@ -75,7 +79,7 @@ function moveTowardPlayer(enemy: Mobj, player: Mobj, mapData: MapData): void {
     return;
   }
 
-  const speed = MONSTER_SPEED[enemy.type] ?? 8;
+  const speed = MONSTER_SPEED[enemy.type] ?? 2;
   enemy.momx = FloatToFixed((dx / dist) * speed);
   enemy.momy = FloatToFixed((dy / dist) * speed);
   applyCollision(enemy, mapData);
@@ -97,7 +101,14 @@ function attackPlayer(enemy: Mobj, player: Mobj): void {
   }
 }
 
-export function updateMonster(enemy: Mobj, player: Mobj, mapData: MapData): void {
+const SOUND_RANGE = 768; // DOOM: P_NoiseAlert propagates through sectors
+
+export function updateMonster(
+  enemy: Mobj,
+  player: Mobj,
+  mapData: MapData,
+  noiseOrigin?: { x: number; y: number }
+): void {
   const ai = getEnemyAI(enemy);
 
   if (enemy.health <= 0) {
@@ -116,6 +127,10 @@ export function updateMonster(enemy: Mobj, player: Mobj, mapData: MapData): void
     ai.attackCooldown--;
   }
 
+  if (ai.reactiontime > 0) {
+    ai.reactiontime--;
+  }
+
   if (ai.painTicks > 0) {
     ai.painTicks--;
     ai.state = AIState.PAIN;
@@ -129,8 +144,21 @@ export function updateMonster(enemy: Mobj, player: Mobj, mapData: MapData): void
     FixedToFloat(player.y - enemy.y)
   );
 
+  // Wake by sight (P_LookForPlayers) or sound (P_NoiseAlert)
   if (hasSight) {
+    if (!ai.target) {
+      ai.reactiontime = 8; // DOOM: don't attack immediately when first seeing
+    }
     ai.target = player;
+  } else if (noiseOrigin && !ai.target && !(enemy.flags & MobjFlags.AMBUSH)) {
+    const distToNoise = Math.hypot(
+      FixedToFloat(enemy.x) - noiseOrigin.x,
+      FixedToFloat(enemy.y) - noiseOrigin.y
+    );
+    if (distToNoise <= SOUND_RANGE) {
+      ai.target = player;
+      ai.reactiontime = 8;
+    }
   }
 
   if (!ai.target) {
@@ -141,9 +169,14 @@ export function updateMonster(enemy: Mobj, player: Mobj, mapData: MapData): void
 
   const meleeRange = enemy.type === 3001 ? 64 : 96;
   const missileRange = enemy.type === 3001 ? 384 : 768;
-  const shouldAttack = hasSight && ai.attackCooldown <= 0 && dist <= missileRange;
+  const canAttack =
+    hasSight &&
+    ai.attackCooldown <= 0 &&
+    ai.reactiontime <= 0 &&
+    dist <= missileRange;
+  const shouldAttack = canAttack && (dist <= meleeRange || (pRandom() % 100) < 18);
 
-  if (shouldAttack && (dist <= meleeRange || (pRandom() % 100) < 18)) {
+  if (shouldAttack) {
     ai.state = AIState.ATTACK;
     ai.attackCooldown = enemy.type === 9 ? 30 : 24;
     attackPlayer(enemy, player);

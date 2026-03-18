@@ -58,6 +58,7 @@ class DoomGame {
   private musicPlayer?: MusicPlayer;
   private previousButtons: number = 0;
   private visitedSecretSectors: Set<number> = new Set();
+  private noiseOrigin?: { x: number; y: number };
   private sectorBaseLightLevels: number[] = [];
   private levelTime: number = 0;
   private playerDied: boolean = false;
@@ -190,7 +191,7 @@ class DoomGame {
       const thinker = spawned.mobj.countsTowardKill
         ? (mobj: Mobj) => {
             if (this.playerMobj && this.mapData) {
-              updateMonster(mobj, this.playerMobj, this.mapData);
+              updateMonster(mobj, this.playerMobj, this.mapData, this.noiseOrigin);
             }
           }
         : undefined;
@@ -444,7 +445,6 @@ class DoomGame {
    */
   private gameTick(tick: number): void {
     this.tickCount++;
-    this.levelTime++;
 
     if (!this.playerMobj || !this.mapData) return;
     if (this.playerMobj.health <= 0) {
@@ -511,6 +511,7 @@ class DoomGame {
 
     // Run all thinkers (enemies, projectiles, etc.)
     this.thinkerManager.runThinkers();
+    this.noiseOrigin = undefined;
 
     // Play pain sound when player takes damage from enemies
     if (
@@ -553,6 +554,8 @@ class DoomGame {
       }
     }
 
+    this.levelTime++; // Match DOOM: increment at end of tick (p_tick.c)
+
     this.levelRenderer?.syncWorldMobjs(this.thinkerManager.getAllMobjs());
 
     // Update HUD
@@ -594,6 +597,10 @@ class DoomGame {
     const success = fireWeapon(weapon, this.playerMobj);
 
     if (success) {
+      this.noiseOrigin = {
+        x: FixedToFloat(this.playerMobj.x),
+        y: FixedToFloat(this.playerMobj.y),
+      };
       if (weapon.currentWeapon === WeaponType.SHOTGUN) {
         this.soundManager?.play('shotgun', 0.45);
       } else if (weapon.currentWeapon === WeaponType.CHAINGUN) {

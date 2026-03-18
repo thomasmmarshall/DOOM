@@ -17,19 +17,20 @@ import { ML_TWOSIDED, ML_BLOCKING } from '../level/types';
  * @param mapData - Map data for line checking
  * @returns true if target is visible from source
  */
+const EYE_HEIGHT = 40; // DOOM uses ~40 units for sight (view height)
+
 export function checkLineOfSight(
   source: Mobj,
   target: Mobj,
   mapData: MapData
 ): boolean {
-  // Convert to float for easier calculation
   const x1 = FixedToFloat(source.x);
   const y1 = FixedToFloat(source.y);
-  const z1 = FixedToFloat(source.z);
+  const z1 = FixedToFloat(source.z) + EYE_HEIGHT;
 
   const x2 = FixedToFloat(target.x);
   const y2 = FixedToFloat(target.y);
-  const z2 = FixedToFloat(target.z);
+  const z2 = FixedToFloat(target.z) + EYE_HEIGHT;
 
   const zMin = Math.min(z1, z2);
   const zMax = Math.max(z1, z2);
