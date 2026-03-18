@@ -506,8 +506,19 @@ class DoomGame {
       this.triggerSystem.checkWalkTriggers(this.playerMobj, oldX, oldY);
     }
 
+    // Save player health before enemies act (for damage feedback)
+    const healthBeforeThinkers = this.playerMobj.health;
+
     // Run all thinkers (enemies, projectiles, etc.)
     this.thinkerManager.runThinkers();
+
+    // Play pain sound when player takes damage from enemies
+    if (
+      this.playerMobj.health > 0 &&
+      this.playerMobj.health < healthBeforeThinkers
+    ) {
+      this.soundManager?.play('playerPain', 0.5);
+    }
 
     // Update doors and platforms
     if (this.doorManager) {

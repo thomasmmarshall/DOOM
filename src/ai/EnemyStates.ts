@@ -86,13 +86,13 @@ function moveTowardPlayer(enemy: Mobj, player: Mobj, mapData: MapData): void {
 function attackPlayer(enemy: Mobj, player: Mobj): void {
   switch (enemy.type) {
     case 3004:
-      damageActor(player, ((pRandom() % 5) + 1) * 3, enemy);
+      damageActor(player, ((pRandom() % 4) + 1) * 2, enemy);
       break;
     case 9:
-      damageActor(player, ((pRandom() % 3) + 1) * 15, enemy);
+      damageActor(player, ((pRandom() % 3) + 1) * 6, enemy);
       break;
     case 3001:
-      damageActor(player, 8 + (pRandom() % 8), enemy);
+      damageActor(player, 4 + (pRandom() % 4), enemy);
       break;
   }
 }

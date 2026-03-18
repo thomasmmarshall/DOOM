@@ -144,7 +144,7 @@ export function createPlayerMobj(x: Fixed, y: Fixed, z: Fixed, angle: Angle): Mo
     floorz: z,
     ceilingz: z + (56 << 16),
     flags: MobjFlags.SOLID | MobjFlags.SHOOTABLE | MobjFlags.DROPOFF | MobjFlags.PICKUP | MobjFlags.SLIDE,
-    health: 100,
+    health: 150,
     type: MobjType.PLAYER,
     sprite: 'PLAY',
     frame: 'A',

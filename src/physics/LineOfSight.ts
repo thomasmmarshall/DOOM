@@ -31,35 +31,66 @@ export function checkLineOfSight(
   const y2 = FixedToFloat(target.y);
   const z2 = FixedToFloat(target.z);
 
-  // Check if any solid linedef blocks the sight line
+  const zMin = Math.min(z1, z2);
+  const zMax = Math.max(z1, z2);
+
   for (const linedef of mapData.linedefs) {
     const v1 = mapData.vertexes[linedef.v1];
     const v2 = mapData.vertexes[linedef.v2];
 
-    // Skip two-sided linedefs (they don't block sight)
+    if (!lineIntersectsLine(x1, y1, x2, y2, v1.x, v1.y, v2.x, v2.y)) {
+      continue;
+    }
+
     const twoSided = (linedef.flags & ML_TWOSIDED) !== 0;
     const blocking = (linedef.flags & ML_BLOCKING) !== 0;
+    const frontSide = linedef.sidenum[0];
+    const backSide = linedef.sidenum[1];
 
-    // One-sided walls always block sight
-    if (!twoSided || blocking) {
-      // Check if sight line intersects this linedef
-      if (lineIntersectsLine(x1, y1, x2, y2, v1.x, v1.y, v2.x, v2.y)) {
-        // Check height - can we see over/under the wall?
-        const frontSide = linedef.sidenum[0];
-        if (frontSide !== -1) {
-          const sector = mapData.sectors[mapData.sidedefs[frontSide].sector];
+    if (frontSide === -1) continue;
 
-          // Simple height check - if target is within floor/ceiling range
-          if (z1 >= sector.floorheight && z1 <= sector.ceilingheight &&
-              z2 >= sector.floorheight && z2 <= sector.ceilingheight) {
-            return false; // Blocked by wall
-          }
-        }
+    const frontSector = mapData.sectors[mapData.sidedefs[frontSide].sector];
+    const frontFloor = frontSector.floorheight;
+    const frontCeiling = frontSector.ceilingheight;
+
+    let openingBottom: number;
+    let openingTop: number;
+
+    if (!twoSided || backSide === -1) {
+      // One-sided: wall extends from floor to ceiling
+      openingBottom = frontFloor;
+      openingTop = frontCeiling;
+      // No opening - solid wall blocks if height overlaps sight
+      if (openingTop > zMin && openingBottom < zMax) {
+        return false;
       }
+      continue;
+    }
+
+    if (blocking) {
+      // Blocking two-sided: treat as solid
+      openingBottom = frontFloor;
+      openingTop = frontCeiling;
+      if (openingTop > zMin && openingBottom < zMax) {
+        return false;
+      }
+      continue;
+    }
+
+    // Two-sided non-blocking: opening is the passable gap
+    const backSector = mapData.sectors[mapData.sidedefs[backSide].sector];
+    openingBottom = Math.max(frontFloor, backSector.floorheight);
+    openingTop = Math.min(frontCeiling, backSector.ceilingheight);
+
+    if (openingTop <= openingBottom) {
+      return false; // No opening - solid
+    }
+    if (openingTop <= zMin || openingBottom >= zMax) {
+      return false; // Sight line doesn't pass through opening
     }
   }
 
-  return true; // Line of sight is clear
+  return true;
 }
 
 /**
