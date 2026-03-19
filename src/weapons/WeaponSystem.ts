@@ -6,7 +6,7 @@
 
 import type { Mobj } from '../game/mobj';
 import { MobjFlags } from '../game/mobj';
-import { FixedToFloat } from '../core/fixed';
+import { FixedToFloat, FRACUNIT } from '../core/fixed';
 import type { MapData } from '../level/types';
 import { ML_BLOCKING, ML_TWOSIDED } from '../level/types';
 import { findSectorAtPoint } from '../level';
@@ -369,6 +369,12 @@ function computeBulletSlope(
   return slope;
 }
 
+/** P_BulletSlope once per shot; pass into performHitscan as `overrideAimSlope` for multi-pellet weapons. */
+export function bulletSlope(source: Mobj, mapData: MapData, allMobjs: Mobj[]): number {
+  const bm = getBlockmapView(mapData.blockmap);
+  return computeBulletSlope(source, mapData, allMobjs, bm, lineAttackShootZ(source));
+}
+
 function resolveShootTraverse(
   mapData: MapData,
   sx: number,
@@ -569,7 +575,16 @@ export function performHitscan(
   damage: number,
   allMobjs: Mobj[],
   mapData: MapData | undefined,
-  options?: { accurate?: boolean; maxRange?: number; spreadBits?: number; aimMode?: 'bullet' | 'melee' }
+  options?: {
+    accurate?: boolean;
+    maxRange?: number;
+    spreadBits?: number;
+    aimMode?: 'bullet' | 'melee';
+    /** From a single `bulletSlope()` call for the whole shotgun blast (vanilla P_BulletSlope). */
+    overrideAimSlope?: number;
+    /** SSG: add `((P_Random()-P_Random())<<shift)/FRACUNIT` per pellet (vanilla shift 5). */
+    slopePerturbShift?: number;
+  }
 ): HitscanResult | null {
   const accurate = options?.accurate ?? false;
   const range = options?.maxRange ?? 2048;
@@ -633,10 +648,18 @@ export function performHitscan(
 
   const bm = getBlockmapView(mapData.blockmap);
   const shootZ = startZ;
-  const aimSlope =
-    aimMode === 'melee'
-      ? aimLineAttackAtAngle(source, ang, range, shootZ, mapData, allMobjs, bm).slope
-      : computeBulletSlope(source, mapData, allMobjs, bm, shootZ);
+  let aimSlope: number;
+  if (options?.overrideAimSlope !== undefined) {
+    aimSlope = options.overrideAimSlope;
+  } else if (aimMode === 'melee') {
+    aimSlope = aimLineAttackAtAngle(source, ang, range, shootZ, mapData, allMobjs, bm).slope;
+  } else {
+    aimSlope = computeBulletSlope(source, mapData, allMobjs, bm, shootZ);
+  }
+  if (options?.slopePerturbShift !== undefined) {
+    const sh = options.slopePerturbShift;
+    aimSlope += ((pRandom() - pRandom()) << sh) / FRACUNIT;
+  }
 
   return resolveShootTraverse(
     mapData,

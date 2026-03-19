@@ -18,7 +18,18 @@ import { movePlayer, applyFriction, applyGravity, applyZMomentum, calculateViewZ
 import type { MapData } from './level';
 import { DoorManager, PlatformManager } from './sectors';
 import { StatusBar, TitleScreen, BorderFrame, MainMenu, IntermissionScreen, type PlayerStats, type IntermissionStats } from './ui';
-import { createPlayerWeapon, updateWeapon, fireWeapon, WeaponType, performHitscan, WEAPON_INFO, switchPlayerWeapon, canPlayerUseWeapon, consumeWeaponAmmo } from './weapons/WeaponSystem';
+import {
+  createPlayerWeapon,
+  updateWeapon,
+  fireWeapon,
+  WeaponType,
+  performHitscan,
+  bulletSlope,
+  WEAPON_INFO,
+  switchPlayerWeapon,
+  canPlayerUseWeapon,
+  consumeWeaponAmmo,
+} from './weapons/WeaponSystem';
 import { spawnPlayerProjectile } from './weapons/projectiles';
 import { damageActor, gunshotPelletDamage, punchDamage, chainsawDamage, setPlayerCountedKillHook } from './game/Damage';
 import { tryPickupItem, checkItemCollision } from './game/Pickups';
@@ -924,16 +935,25 @@ class DoomGame {
       applyHitscan(performHitscan(player, angleBam, gunshotPelletDamage(), allMobjs, this.mapData, { accurate }));
       consumeWeaponAmmo(player, w);
     } else if (w === WeaponType.SHOTGUN) {
+      const bs = bulletSlope(player, this.mapData, allMobjs);
       for (let i = 0; i < 7; i++) {
         applyHitscan(
-          performHitscan(player, angleBam, gunshotPelletDamage(), allMobjs, this.mapData, { spreadBits: 18 })
+          performHitscan(player, angleBam, gunshotPelletDamage(), allMobjs, this.mapData, {
+            spreadBits: 18,
+            overrideAimSlope: bs,
+          })
         );
       }
       consumeWeaponAmmo(player, w);
     } else if (w === WeaponType.SUPER_SHOTGUN) {
+      const bs = bulletSlope(player, this.mapData, allMobjs);
       for (let i = 0; i < 20; i++) {
         applyHitscan(
-          performHitscan(player, angleBam, gunshotPelletDamage(), allMobjs, this.mapData, { spreadBits: 19 })
+          performHitscan(player, angleBam, gunshotPelletDamage(), allMobjs, this.mapData, {
+            spreadBits: 19,
+            overrideAimSlope: bs,
+            slopePerturbShift: 5,
+          })
         );
       }
       consumeWeaponAmmo(player, w);
