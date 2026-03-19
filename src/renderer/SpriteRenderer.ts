@@ -6,6 +6,7 @@
 
 import * as THREE from 'three';
 import type { Mobj } from '../game/mobj';
+import { MobjFlags } from '../game/mobj';
 import { SpriteLoader } from '../graphics/SpriteLoader';
 import type { WADReader } from '../wad';
 import { doomAngleToThreeRadians, doomToThree, FixedToFloat } from '../core';
@@ -64,6 +65,7 @@ export class SpriteRenderer {
       useDistanceLighting: true,
       distanceScale: 48,
       fullBright: false,
+      spectre: (mobj.flags & MobjFlags.SHADOW) !== 0,
     });
 
     // Create sprite
@@ -104,8 +106,18 @@ export class SpriteRenderer {
    * Call this each frame
    */
   update(cameraX: number, cameraY: number, _cameraPosition?: THREE.Vector3): void {
-    for (const spriteObj of this.spriteObjects.values()) {
-      // Update position
+    const sorted = [...this.spriteObjects.values()].sort((a, b) => {
+      const ax = FixedToFloat(a.mobj.x);
+      const ay = FixedToFloat(a.mobj.y);
+      const bx = FixedToFloat(b.mobj.x);
+      const by = FixedToFloat(b.mobj.y);
+      const da = Math.max(Math.abs(ax - cameraX), Math.abs(ay - cameraY));
+      const db = Math.max(Math.abs(bx - cameraX), Math.abs(by - cameraY));
+      return db - da;
+    });
+
+    let order = 20000;
+    for (const spriteObj of sorted) {
       this.updateSpritePosition(spriteObj.sprite, spriteObj.mobj);
 
       const spriteName = spriteObj.mobj.sprite ?? spriteObj.currentFrame.slice(0, 4);
@@ -114,9 +126,7 @@ export class SpriteRenderer {
       this.updateSpriteFrame(spriteObj.mobj, spriteName, frame, rotation);
 
       spriteObj.sprite.visible = !spriteObj.mobj.removed;
-
-      // Sprites always face camera (billboard effect)
-      // THREE.Sprite handles this automatically
+      spriteObj.sprite.renderOrder = order--;
     }
   }
 

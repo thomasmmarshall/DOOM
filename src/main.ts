@@ -34,7 +34,7 @@ import { spawnPlayerProjectile } from './weapons/projectiles';
 import { damageActor, gunshotPelletDamage, punchDamage, chainsawDamage, setPlayerCountedKillHook } from './game/Damage';
 import { tryPickupItem, checkItemCollision } from './game/Pickups';
 import { updateMonster, type MonsterAttackCallback } from './ai';
-import { MusicPlayer, SoundManager } from './audio';
+import { MusicPlayer, SoundManager, type SoundSpatial } from './audio';
 
 const DOOM_DISPLAY_ASPECT = 4 / 3;
 const DOOM_INTERNAL_WIDTH = 320;
@@ -417,16 +417,32 @@ class DoomGame {
     });
   }
 
+  private monsterSpatial(enemy: Mobj): SoundSpatial | undefined {
+    if (!this.playerMobj) return undefined;
+    return {
+      origin: { x: FixedToFloat(enemy.x), y: FixedToFloat(enemy.y) },
+      listener: {
+        x: FixedToFloat(this.playerMobj.x),
+        y: FixedToFloat(this.playerMobj.y),
+        angleBam: this.playerMobj.angle,
+      },
+    };
+  }
+
   private onMonsterAttack: MonsterAttackCallback = (enemy, melee) => {
+    const sp = this.monsterSpatial(enemy);
     switch (enemy.type) {
       case 3001:
-        this.soundManager?.play(melee ? 'impClaw' : 'impFireball', melee ? 0.48 : 0.42);
+        this.soundManager?.play(melee ? 'impClaw' : 'impFireball', melee ? 0.48 : 0.42, sp);
+        break;
+      case 3002:
+        this.soundManager?.play('demonAttack', 0.45, sp);
         break;
       case 3004:
-        this.soundManager?.play('pistol', 0.38);
+        this.soundManager?.play('pistol', 0.38, sp);
         break;
       case 9:
-        this.soundManager?.play('shotgun', 0.42);
+        this.soundManager?.play('shotgun', 0.42, sp);
         break;
       default:
         break;
@@ -513,7 +529,10 @@ class DoomGame {
       const thinker = spawned.mobj.countsTowardKill
         ? (mobj: Mobj) => {
             if (this.playerMobj && this.mapData) {
-              updateMonster(mobj, this.playerMobj, this.mapData, this.noiseOrigin, this.onMonsterAttack);
+              updateMonster(mobj, this.playerMobj, this.mapData, this.noiseOrigin, this.onMonsterAttack, {
+                getAllMobjs: () => this.thinkerManager.getAllMobjs(),
+                addWorldMobj: (m, t) => this.addWorldMobj(m, t),
+              });
             }
           }
         : undefined;
@@ -1186,7 +1205,7 @@ class DoomGame {
     if (this.levelRenderer && this.playerMobj) {
       const x = FixedToFloat(this.playerMobj.x);
       const y = FixedToFloat(this.playerMobj.y);
-      this.levelRenderer.updateVisibility(x, y, this.camera.position);
+      this.levelRenderer.updateVisibility(x, y, this.playerMobj.angle, this.camera.position);
       // Update sky to follow camera
       this.levelRenderer.updateSky(this.camera.position);
     }

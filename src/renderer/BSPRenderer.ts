@@ -7,6 +7,7 @@
 import type { MapData } from '../level/types';
 import { NF_SUBSECTOR } from '../level/types';
 import { pointOnBspNode } from '../level/sectorUtils';
+import { checkBBoxMightBeVisible } from './bspVisibility';
 
 export class BSPRenderer {
   private mapData: MapData;
@@ -23,7 +24,10 @@ export class BSPRenderer {
    * @param cameraY - Camera Y position in DOOM coordinates
    * @returns Set of visible subsector indices
    */
-  getVisibleSubsectors(cameraX: number, cameraY: number): Set<number> {
+  /**
+   * @param viewAngleBam Player view angle (BAM), used for R_CheckBBox-style far subtree tests.
+   */
+  getVisibleSubsectors(cameraX: number, cameraY: number, viewAngleBam: number): Set<number> {
     this.visibleSubsectors.clear();
 
     if (this.mapData.nodes.length === 0) {
@@ -34,9 +38,9 @@ export class BSPRenderer {
       return this.visibleSubsectors;
     }
 
-    // Start traversal from root node (last node in array)
+    // Start traversal from root node (last node in array) — r_bsp.c R_RenderBSPNode
     const rootNodeIndex = this.mapData.nodes.length - 1;
-    this.traverseNode(rootNodeIndex, cameraX, cameraY);
+    this.traverseNode(rootNodeIndex, cameraX, cameraY, viewAngleBam >>> 0);
 
     return this.visibleSubsectors;
   }
@@ -47,7 +51,7 @@ export class BSPRenderer {
    * @param x - Camera X position
    * @param y - Camera Y position
    */
-  private traverseNode(nodeIndex: number, x: number, y: number): void {
+  private traverseNode(nodeIndex: number, x: number, y: number, viewAngleBam: number): void {
     // Check if this is a subsector
     if ((nodeIndex & NF_SUBSECTOR) !== 0) {
       // This is a subsector - add to visible list
@@ -67,12 +71,13 @@ export class BSPRenderer {
     const node = this.mapData.nodes[nodeIndex];
     const side = pointOnBspNode(x, y, node);
 
-    // Traverse near side first (front-to-back)
-    this.traverseNode(node.children[side], x, y);
+    this.traverseNode(node.children[side], x, y, viewAngleBam);
 
-    // Check if we should traverse far side
-    // For now, always traverse both sides (we'll add frustum culling later)
-    this.traverseNode(node.children[side ^ 1], x, y);
+    const far = side ^ 1;
+    const farBBox = node.bbox[far] as [number, number, number, number];
+    if (checkBBoxMightBeVisible(x, y, viewAngleBam, farBBox)) {
+      this.traverseNode(node.children[far], x, y, viewAngleBam);
+    }
   }
 
   /**

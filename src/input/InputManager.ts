@@ -18,7 +18,8 @@ export interface TicCmd {
 export enum Button {
   ATTACK = 1,
   USE = 2,
-  JUMP = 4, // Not in original DOOM
+  /** Reserved; not produced by {@link InputManager.buildTicCmd} in vanilla mode. */
+  JUMP = 4,
 }
 
 export class InputManager {
@@ -26,6 +27,12 @@ export class InputManager {
   private mouseX: number = 0;
   private mouseY: number = 0;
   private mouseLocked: boolean = false;
+
+  /**
+   * When true (default), ticcmd buttons match DOS DOOM (attack + use only; no jump).
+   * Set false only for extension ports that wire extra keys to {@link Button.JUMP}.
+   */
+  vanillaDoom: boolean = true;
 
   constructor() {
     this.setupEventListeners();
@@ -111,6 +118,10 @@ export class InputManager {
 
     if (this.keys.has('Space') || this.keys.has('KeyE') || this.keys.has('Mouse2')) {
       cmd.buttons |= Button.USE;
+    }
+
+    if (!this.vanillaDoom && this.keys.has('KeyQ')) {
+      cmd.buttons |= Button.JUMP;
     }
 
     return cmd;

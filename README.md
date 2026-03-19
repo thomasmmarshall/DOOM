@@ -6,7 +6,7 @@ The goal is the same game *under the hood* (fixed math, tic timing, movement, BS
 
 ## Status
 
-Core loop and mechanics are in place and **playable**; the project is still **rough in places**—expect bugs and incomplete features. Sprites, AI, doors, audio polish, and UI are ongoing or planned; see `REMAINING_FEATURES_PLAN.md` and `CURRENT_ISSUES.md` if you want detail.
+Core loop and mechanics are in place and **playable**; the project is still **rough in places**—expect bugs and incomplete features. For linuxdoom parity status and subsystem mapping, see **[AUTHENTICITY.md](AUTHENTICITY.md)**.
 
 ## How it’s built
 

@@ -4,11 +4,26 @@
  * Based on linuxdoom-1.10/d_main.c (D_DoomLoop)
  */
 
-export const TICRATE = 35; // 35 Hz nominal (original DOOM)
-/** Scale applied to tick rate: 1 = original speed, <1 = slower. Use 0.7 to match original feel if game feels too fast. */
-const GAME_SPEED = 0.7;
-const TICK_DURATION = 1000 / (TICRATE * GAME_SPEED); // longer = fewer ticks per second
-const MAX_DELTA_MS = 2 * (1000 / TICRATE); // cap so we never run more than 2 ticks per frame when catching up
+export const TICRATE = 35; // 35 Hz nominal (original DOOM, d_main.c)
+
+/** 1 = linuxdoom tic rate; &lt;1 slows simulation for playtesting only. */
+let gameSpeedScale = 1.0;
+
+export function getGameSpeedScale(): number {
+  return gameSpeedScale;
+}
+
+/** Clamp and apply optional speed (e.g. menu/cheat). Default 1.0 matches vanilla. */
+export function setGameSpeedScale(scale: number): void {
+  gameSpeedScale = Math.max(0.25, Math.min(4, scale));
+}
+
+function tickDurationMs(): number {
+  return 1000 / (TICRATE * gameSpeedScale);
+}
+
+/** Max wall-clock ms per frame used for tick accumulation (background tab / hitch cap). */
+const MAX_DELTA_MS = 2 * (1000 / TICRATE); // align with vanilla ~2 tics max catch-up feel
 
 export type TickFunction = (tick: number) => void;
 
@@ -65,15 +80,16 @@ export class GameTicker {
     const maxTicks = 4; // Max 4 ticks per frame
     let ticksThisFrame = 0;
 
-    while (this.accumulator >= TICK_DURATION && ticksThisFrame < maxTicks) {
+    const step = tickDurationMs();
+    while (this.accumulator >= step && ticksThisFrame < maxTicks) {
       this.tickFunction(this.currentTick);
       this.currentTick++;
-      this.accumulator -= TICK_DURATION;
+      this.accumulator -= step;
       ticksThisFrame++;
     }
 
     // If we're too far behind, reset accumulator
-    if (this.accumulator > TICK_DURATION * maxTicks) {
+    if (this.accumulator > step * maxTicks) {
       console.warn('Game ticker falling behind, resetting accumulator');
       this.accumulator = 0;
     }
@@ -94,6 +110,7 @@ export class GameTicker {
    * Returns value between 0 and 1 representing how far we are to the next tick
    */
   getInterpolationAlpha(): number {
-    return this.accumulator / TICK_DURATION;
+    const step = tickDurationMs();
+    return step > 0 ? this.accumulator / step : 0;
   }
 }

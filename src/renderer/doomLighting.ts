@@ -20,6 +20,7 @@ interface DoomIndexedUniforms {
   uDistanceOffset: { value: number };
   uUseDistanceLighting: { value: number };
   uFullBright: { value: number };
+  uSpectre: { value: number };
 }
 
 export interface DoomIndexedMaterialOptions {
@@ -30,6 +31,8 @@ export interface DoomIndexedMaterialOptions {
   distanceScale?: number;
   distanceOffset?: number;
   fullBright?: boolean;
+  /** MF_SHADOW — colormap index wobble like vanilla fuzzy draw */
+  spectre?: boolean;
 }
 
 export function createDoomPaletteResources(
@@ -106,6 +109,7 @@ export function applyDoomIndexedMaterial(
     uDistanceOffset: { value: options.distanceOffset ?? DEFAULT_DISTANCE_OFFSET },
     uUseDistanceLighting: { value: options.useDistanceLighting ? 1 : 0 },
     uFullBright: { value: options.fullBright ? 1 : 0 },
+    uSpectre: { value: options.spectre ? 1 : 0 },
   };
 
   material.userData.doomIndexedUniforms = uniforms;
@@ -116,12 +120,14 @@ export function applyDoomIndexedMaterial(
       .replace(
         '#include <common>',
         `#include <common>
-varying float vDoomDistance;`
+varying float vDoomDistance;
+varying float vDoomScreenY;`
       )
       .replace(
         '#include <project_vertex>',
         `#include <project_vertex>
-vDoomDistance = length( mvPosition.xyz );`
+vDoomDistance = length( mvPosition.xyz );
+vDoomScreenY = gl_Position.y / max(abs(gl_Position.w), 1e-4);`
       );
 
     shader.fragmentShader = shader.fragmentShader
@@ -136,7 +142,9 @@ uniform float uDistanceScale;
 uniform float uDistanceOffset;
 uniform float uUseDistanceLighting;
 uniform float uFullBright;
+uniform float uSpectre;
 varying float vDoomDistance;
+varying float vDoomScreenY;
 
 float samplePaletteIndex(float value) {
   return floor((value * 255.0) + 0.5);
@@ -154,7 +162,9 @@ float computeColormapRow() {
     return 0.0;
   }
 
-  float adjustedLight = clamp(uLightLevel + uFakeContrast, 0.0, 255.0);
+  float yBand = vDoomScreenY * 6.0;
+  float screenContrast = clamp(floor(yBand + 0.5) - 3.0, -3.0, 3.0) * 2.0;
+  float adjustedLight = clamp(uLightLevel + uFakeContrast + screenContrast, 0.0, 255.0);
   float baseRow = clamp(31.0 - floor(adjustedLight / 8.0), 0.0, 31.0);
   float distanceRow = 0.0;
 
@@ -170,6 +180,10 @@ float computeColormapRow() {
         `#ifdef USE_MAP
 vec4 indexedTexel = texture2D( map, vMapUv );
 float paletteIndex = samplePaletteIndex(indexedTexel.r);
+if (uSpectre > 0.5) {
+  float n = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
+  paletteIndex = clamp(paletteIndex + floor(n * 5.0) - 2.0, 0.0, 255.0);
+}
 float alpha = indexedTexel.a;
 float colormapRow = computeColormapRow();
 float mappedIndex = samplePaletteIndex(
@@ -190,6 +204,7 @@ diffuseColor *= vec4(paletteColor, alpha);
     'doomIndexed',
     options.useDistanceLighting ? 'distance' : 'nodistance',
     options.fullBright ? 'fullbright' : 'lit',
+    options.spectre ? 'spec' : 'nospec',
   ].join(':');
   material.needsUpdate = true;
 }

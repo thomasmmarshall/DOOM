@@ -1,16 +1,19 @@
 /**
  * Enemy AI State System
- * Defines behavior states for monsters
- * Based on linuxdoom-1.10/info.c and p_enemy.c
+ * Based on linuxdoom-1.10/info.c, p_enemy.c (A_Chase, A_PosAttack, A_TroopAttack, …)
  */
 
 import type { Mobj } from '../game/mobj';
 import { MobjFlags } from '../game/mobj';
 import { FixedToFloat, FloatToFixed, pRandom } from '../core';
+import { pointToAngleBam } from '../core/coordinates';
 import type { MapData } from '../level/types';
 import { checkLineOfSight } from '../physics/LineOfSight';
 import { applyCollision, applyGravity, applyZMomentum } from '../physics';
 import { damageActor } from '../game/Damage';
+import { getMonsterChaseSpeed, getMonsterReactionTime } from '../game/mobjinfoMotion';
+import { performHitscan } from '../weapons/WeaponSystem';
+import { spawnImpFireball } from '../weapons/projectiles';
 
 export enum AIState {
   IDLE = 'IDLE',
@@ -26,16 +29,17 @@ export interface EnemyAI {
   attackCooldown: number;
   painTicks: number;
   animationTicks: number;
-  reactiontime: number; // Ticks before attacking when first seeing target (DOOM: 8)
+  reactiontime: number;
 }
 
-// DOOM: Imp 8, Shotgun guy 15, Demon 10. We use 8 discrete dirs + movecount;
-// we move every tick in exact direction so use ~1/3 speed to match feel.
-const MONSTER_SPEED: Record<number, number> = {
-  3004: 2,  // Imp
-  9: 3,     // Shotgun guy
-  3001: 2,  // Demon
-};
+/** Optional: imp fireball + monster hitscans need world mobjs and spawner. */
+export interface MonsterThinkContext {
+  getAllMobjs: () => Mobj[];
+  addWorldMobj: (mobj: Mobj, thinker: (m: Mobj) => void) => void;
+}
+
+const MELEERANGE = 64;
+const MISSILERANGE = 2048;
 
 function getEnemyAI(enemy: Mobj): EnemyAI {
   if (!(enemy as any).ai) {
@@ -53,8 +57,8 @@ function getEnemyAI(enemy: Mobj): EnemyAI {
 
 const DEATH_FRAMES: Record<number, string> = {
   2035: 'B',
-  3001: 'M',
-  3002: 'N',
+  3001: 'L',
+  3002: 'M',
   3004: 'L',
   9: 'L',
 };
@@ -87,7 +91,7 @@ function moveTowardPlayer(enemy: Mobj, player: Mobj, mapData: MapData): void {
     return;
   }
 
-  const speed = MONSTER_SPEED[enemy.type] ?? 2;
+  const speed = getMonsterChaseSpeed(enemy.type);
   enemy.momx = FloatToFixed((dx / dist) * speed);
   enemy.momy = FloatToFixed((dy / dist) * speed);
   applyCollision(enemy, mapData);
@@ -95,16 +99,57 @@ function moveTowardPlayer(enemy: Mobj, player: Mobj, mapData: MapData): void {
   applyZMomentum(enemy);
 }
 
-function attackPlayer(enemy: Mobj, player: Mobj): void {
+function applyMonsterHitscan(
+  enemy: Mobj,
+  target: Mobj,
+  mapData: MapData,
+  getAllMobjs: () => Mobj[],
+  pelletCount: number
+): void {
+  const ex = FixedToFloat(enemy.x);
+  const ey = FixedToFloat(enemy.y);
+  const px = FixedToFloat(target.x);
+  const py = FixedToFloat(target.y);
+  const baseAng = pointToAngleBam(ex, ey, px, py);
+
+  for (let i = 0; i < pelletCount; i++) {
+    let ang = baseAng;
+    ang = (ang + ((pRandom() - pRandom()) << 20)) >>> 0;
+    const damage = ((pRandom() % 5) + 1) * 3;
+    const res = performHitscan(enemy, ang, damage, getAllMobjs(), mapData);
+    if (res?.hit && res.target) {
+      damageActor(res.target, res.damage, enemy);
+    }
+  }
+}
+
+function resolveAttack(
+  enemy: Mobj,
+  player: Mobj,
+  mapData: MapData,
+  melee: boolean,
+  ctx: MonsterThinkContext | undefined
+): void {
   switch (enemy.type) {
     case 3004:
-      damageActor(player, ((pRandom() % 4) + 1) * 2, enemy);
+      if (ctx) applyMonsterHitscan(enemy, player, mapData, ctx.getAllMobjs, 1);
       break;
     case 9:
-      damageActor(player, ((pRandom() % 3) + 1) * 6, enemy);
+      if (ctx) applyMonsterHitscan(enemy, player, mapData, ctx.getAllMobjs, 3);
       break;
     case 3001:
-      damageActor(player, 4 + (pRandom() % 4), enemy);
+      if (melee) {
+        damageActor(player, (pRandom() % 8 + 1) * 3, enemy);
+      } else if (ctx) {
+        spawnImpFireball(enemy, player, mapData, ctx.getAllMobjs, ctx.addWorldMobj);
+      }
+      break;
+    case 3002:
+      if (melee) {
+        damageActor(player, ((pRandom() % 10) + 1) * 4, enemy);
+      }
+      break;
+    default:
       break;
   }
 }
@@ -112,14 +157,15 @@ function attackPlayer(enemy: Mobj, player: Mobj): void {
 /** Fired the moment a monster lands an attack (for audio / feedback). */
 export type MonsterAttackCallback = (enemy: Mobj, melee: boolean) => void;
 
-const SOUND_RANGE = 768; // DOOM: P_NoiseAlert propagates through sectors
+const SOUND_RANGE = 768;
 
 export function updateMonster(
   enemy: Mobj,
   player: Mobj,
   mapData: MapData,
   noiseOrigin?: { x: number; y: number },
-  onAttack?: MonsterAttackCallback
+  onAttack?: MonsterAttackCallback,
+  ctx?: MonsterThinkContext
 ): void {
   const ai = getEnemyAI(enemy);
 
@@ -156,10 +202,11 @@ export function updateMonster(
     FixedToFloat(player.y - enemy.y)
   );
 
-  // Wake by sight (P_LookForPlayers) or sound (P_NoiseAlert)
+  const react = getMonsterReactionTime(enemy.type);
+
   if (hasSight) {
     if (!ai.target) {
-      ai.reactiontime = 8; // DOOM: don't attack immediately when first seeing
+      ai.reactiontime = react;
     }
     ai.target = player;
   } else if (noiseOrigin && !ai.target && !(enemy.flags & MobjFlags.AMBUSH)) {
@@ -169,7 +216,7 @@ export function updateMonster(
     );
     if (distToNoise <= SOUND_RANGE) {
       ai.target = player;
-      ai.reactiontime = 8;
+      ai.reactiontime = react;
     }
   }
 
@@ -179,24 +226,43 @@ export function updateMonster(
     return;
   }
 
-  const meleeRange = enemy.type === 3001 ? 64 : 96;
-  const missileRange = enemy.type === 3001 ? 384 : 768;
   const canAttack =
     hasSight &&
     ai.attackCooldown <= 0 &&
     ai.reactiontime <= 0 &&
-    dist <= missileRange;
-  // DOOM: melee always; missile only 18% chance per check (p_enemy.c A_Chase)
+    dist <= MISSILERANGE;
+
   const missileChance = (pRandom() % 100) < 18;
-  const shouldAttack = canAttack && (dist <= meleeRange || missileChance);
+  const inMelee = dist <= MELEERANGE;
+
+  let shouldAttack = false;
+  let melee = false;
+
+  switch (enemy.type) {
+    case 3002:
+      shouldAttack = canAttack && inMelee;
+      melee = true;
+      break;
+    case 3001:
+      shouldAttack = canAttack && (inMelee || missileChance);
+      melee = inMelee;
+      break;
+    case 3004:
+    case 9:
+      shouldAttack = canAttack && missileChance;
+      melee = false;
+      break;
+    default:
+      shouldAttack = canAttack && missileChance;
+      melee = inMelee;
+      break;
+  }
 
   if (shouldAttack) {
     ai.state = AIState.ATTACK;
-    // Cooldown so enemy doesn't shoot again immediately (DOOM: attack state has duration)
     ai.attackCooldown = enemy.type === 9 ? 56 : 48;
-    const melee = dist <= meleeRange;
     onAttack?.(enemy, melee);
-    attackPlayer(enemy, player);
+    resolveAttack(enemy, player, mapData, melee, ctx);
   } else {
     ai.state = AIState.CHASE;
     moveTowardPlayer(enemy, player, mapData);

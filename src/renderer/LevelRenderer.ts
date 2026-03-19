@@ -153,9 +153,15 @@ export class LevelRenderer {
    * Call this each frame from the main render loop
    * @param cameraX - Camera X position in DOOM coordinates
    * @param cameraY - Camera Y position in DOOM coordinates
+   * @param viewAngleBam - Player view angle (BAM) for BSP far subtree tests
    * @param cameraPosition - three.js camera position for sprite billboarding
    */
-  updateVisibility(cameraX: number, cameraY: number, cameraPosition?: THREE.Vector3): void {
+  updateVisibility(
+    cameraX: number,
+    cameraY: number,
+    viewAngleBam: number,
+    cameraPosition?: THREE.Vector3
+  ): void {
     this.spriteRenderer.update(cameraX, cameraY, cameraPosition);
 
     if (!this.useBSPCulling) {
@@ -163,19 +169,27 @@ export class LevelRenderer {
       return;
     }
 
-    // Get visible subsectors from BSP traversal
-    const visibleSubsectors = this.bspRenderer.getVisibleSubsectors(cameraX, cameraY);
+    const visibleSubsectors = this.bspRenderer.getVisibleSubsectors(
+      cameraX,
+      cameraY,
+      viewAngleBam
+    );
 
-    // Build set of visible sectors
     const visibleSectors = new Set<number>();
+    const visibleLinedefs = new Set<number>();
     for (const subsectorIdx of visibleSubsectors) {
       const sectorIdx = this.bspRenderer.getSubsectorSector(subsectorIdx);
       if (sectorIdx >= 0) {
         visibleSectors.add(sectorIdx);
       }
+      for (const segIdx of this.bspRenderer.getSubsectorSegs(subsectorIdx)) {
+        const seg = this.mapData.segs[segIdx];
+        if (seg && seg.linedef >= 0) {
+          visibleLinedefs.add(seg.linedef);
+        }
+      }
     }
 
-    // Update sector mesh visibility
     for (const [sectorIdx, meshes] of this.sectorMeshes.entries()) {
       const visible = visibleSectors.has(sectorIdx);
       for (const mesh of meshes) {
@@ -183,9 +197,9 @@ export class LevelRenderer {
       }
     }
 
-    // For now, keep all walls visible
-    // In a more advanced implementation, we'd track which walls belong to which subsectors
-
+    for (const info of this.wallMeshInfo) {
+      info.mesh.visible = visibleLinedefs.has(info.lineIndex);
+    }
   }
 
   /**
@@ -195,7 +209,6 @@ export class LevelRenderer {
     this.useBSPCulling = enabled;
 
     if (!enabled) {
-      // Show all geometry
       for (const meshes of this.sectorMeshes.values()) {
         for (const mesh of meshes) {
           mesh.visible = true;

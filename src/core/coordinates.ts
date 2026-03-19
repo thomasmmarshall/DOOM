@@ -63,3 +63,12 @@ export function doomAngleToThree(degrees: number): number {
 export function doomToVector2(x: number, y: number): THREE.Vector2 {
   return new THREE.Vector2(x, y);
 }
+
+/** R_PointToAngle2-style BAM from world (map) x,y — same convention as `doomAngleToThreeRadians`. */
+export function pointToAngleBam(fromX: number, fromY: number, toX: number, toY: number): number {
+  const dx = toX - fromX;
+  const dy = toY - fromY;
+  let rad = Math.atan2(dy, dx);
+  if (rad < 0) rad += 2 * Math.PI;
+  return Math.floor((rad / (2 * Math.PI)) * 0x100000000) >>> 0;
+}

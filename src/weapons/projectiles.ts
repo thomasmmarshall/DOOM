@@ -5,7 +5,7 @@
 
 import type { Mobj } from '../game/mobj';
 import { MobjFlags } from '../game/mobj';
-import { doomAngleToThreeRadians } from '../core/coordinates';
+import { doomAngleToThreeRadians, pointToAngleBam } from '../core/coordinates';
 import { pRandom } from '../core';
 import { FixedToFloat, FloatToFixed } from '../core/fixed';
 import type { MapData } from '../level/types';
@@ -68,6 +68,116 @@ function raySegmentHitsCircle(
   const t1 = (-b + s) / (2 * a);
   const inSeg = (t: number) => t >= 0 && t <= 1;
   return inSeg(t0) || inSeg(t1);
+}
+
+const IMP_FIREBALL_SPEED = 10;
+
+/** MT_TROOPSHOT-style imp fireball (p_enemy.c A_TroopAttack missile). */
+export function spawnImpFireball(
+  actor: Mobj,
+  target: Mobj,
+  mapData: MapData,
+  getAllMobjs: () => Mobj[],
+  addWorldMobj: (mobj: Mobj, thinker: (m: Mobj) => void) => void
+): void {
+  const ax = FixedToFloat(actor.x);
+  const ay = FixedToFloat(actor.y);
+  const tx = FixedToFloat(target.x);
+  const ty = FixedToFloat(target.y);
+  const angBam = pointToAngleBam(ax, ay, tx, ty);
+  const rad = doomAngleToThreeRadians(angBam);
+  const px = ax + Math.cos(rad) * 24;
+  const py = ay + Math.sin(rad) * 24;
+  const pz = FixedToFloat(actor.z) + 32;
+
+  const sectorIndex = findSectorAtPoint(px, py, mapData);
+  const owner = actor;
+
+  const proj: Mobj = {
+    x: FloatToFixed(px),
+    y: FloatToFixed(py),
+    z: FloatToFixed(pz),
+    angle: angBam as unknown as number,
+    momx: FloatToFixed(Math.cos(rad) * IMP_FIREBALL_SPEED),
+    momy: FloatToFixed(Math.sin(rad) * IMP_FIREBALL_SPEED),
+    momz: 0,
+    radius: FloatToFixed(6),
+    height: FloatToFixed(8),
+    floorz: actor.floorz,
+    ceilingz: actor.ceilingz,
+    flags: MobjFlags.MISSILE | MobjFlags.NOGRAVITY | MobjFlags.DROPOFF,
+    health: 1000,
+    type: 20103,
+    sprite: 'BAL1',
+    frame: 'A',
+    rotation: 0,
+    sectorIndex: sectorIndex >= 0 ? sectorIndex : undefined,
+  };
+
+  addWorldMobj(proj, (m) => {
+    if (m.removed) return;
+
+    const ox = FixedToFloat(m.x);
+    const oy = FixedToFloat(m.y);
+    const oz = FixedToFloat(m.z);
+
+    const vx = FixedToFloat(m.momx);
+    const vy = FixedToFloat(m.momy);
+    const step = Math.hypot(vx, vy);
+    if (step < 0.001) {
+      m.removed = true;
+      return;
+    }
+
+    const nx = ox + vx;
+    const ny = oy + vy;
+    const dirX = vx / step;
+    const dirY = vy / step;
+
+    const wallT = getRayToWallDistance(ox, oy, dirX, dirY, step + 0.01, mapData, oz + FixedToFloat(m.height) / 2);
+    let hitDist = step + 0.01;
+    let hitThing: Mobj | undefined;
+
+    const all = getAllMobjs();
+    for (const t of all) {
+      if (t === m || t === owner || t.removed) continue;
+      if (!(t.flags & MobjFlags.SHOOTABLE)) continue;
+      if (t.health <= 0) continue;
+
+      const txx = FixedToFloat(t.x);
+      const tyy = FixedToFloat(t.y);
+      const tr = FixedToFloat(t.radius);
+      const tz = FixedToFloat(t.z);
+      const th = FixedToFloat(t.height);
+
+      if (!raySegmentHitsCircle(ox, oy, nx, ny, txx, tyy, tr)) continue;
+      if (oz < tz || oz > tz + th) continue;
+
+      const tAlong = (txx - ox) * dirX + (tyy - oy) * dirY;
+      if (tAlong >= 0 && tAlong < hitDist) {
+        hitDist = tAlong;
+        hitThing = t;
+      }
+    }
+
+    const hitWall = wallT < hitDist && wallT <= step;
+
+    if (hitThing && hitDist <= step) {
+      // linuxdoom MT_TROOPSHOT damage + impact (roughly 3–24 like vanilla fireball).
+      const dmg = 3 * ((pRandom() % 8) + 1);
+      damageActor(hitThing, dmg, owner);
+      m.removed = true;
+      return;
+    }
+
+    if (hitWall) {
+      m.removed = true;
+      return;
+    }
+
+    m.x = FloatToFixed(nx);
+    m.y = FloatToFixed(ny);
+  });
 }
 
 export function spawnPlayerProjectile(
