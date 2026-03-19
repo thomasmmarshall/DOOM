@@ -11,7 +11,7 @@ import { FixedToFloat, FloatToFixed } from '../core/fixed';
 import type { MapData } from '../level/types';
 import { findSectorAtPoint } from '../level';
 import { damageActor } from '../game/Damage';
-import { getRayToWallDistance } from './WeaponSystem';
+import { getRayToWallDistance, performHitscan } from './WeaponSystem';
 
 export type ProjectileKind = 'rocket' | 'plasma' | 'bfg';
 
@@ -166,8 +166,8 @@ export function spawnPlayerProjectile(
       } else if (kind === 'rocket') {
         radiusAttack(hx, hy, 128, owner, all);
       } else {
-        radiusAttack(hx, hy, 128, owner, all);
-        bfgSprayApprox(owner, hx, hy, all);
+        damageActor(hitThing, 100, owner);
+        bfgSprayVanilla(owner, m.angle >>> 0, mapData, all);
       }
       m.removed = true;
       return;
@@ -176,11 +176,10 @@ export function spawnPlayerProjectile(
     if (hitWall) {
       const hx = ox + dirX * Math.max(0, wallT - 0.05);
       const hy = oy + dirY * Math.max(0, wallT - 0.05);
-      if (kind === 'rocket' || kind === 'bfg') {
+      if (kind === 'rocket') {
         radiusAttack(hx, hy, 128, owner, all);
-        if (kind === 'bfg') {
-          bfgSprayApprox(owner, hx, hy, all);
-        }
+      } else if (kind === 'bfg') {
+        bfgSprayVanilla(owner, m.angle >>> 0, mapData, all);
       }
       m.removed = true;
       return;
@@ -191,30 +190,30 @@ export function spawnPlayerProjectile(
   });
 }
 
-/** Rough cone damage toward enemies (full BFG does traces from player). */
-function bfgSprayApprox(player: Mobj, _bx: number, _by: number, all: Mobj[]): void {
-  const pa = doomAngleToThreeRadians(player.angle);
-  const ax = Math.cos(pa);
-  const ay = Math.sin(pa);
-  const px = FixedToFloat(player.x);
-  const py = FixedToFloat(player.y);
+/**
+ * linuxdoom-1.10 `A_BFGSpray`: 40 `P_AimLineAttack`-style traces from the player
+ * in a 90° fan centered on the ball's travel angle, each hit for sum of 15×((rand&7)+1).
+ */
+function bfgSprayVanilla(
+  player: Mobj,
+  ballAngleBam: number,
+  mapData: MapData | undefined,
+  allMobjs: Mobj[]
+): void {
+  const ANG90 = 0x40000000 >>> 0;
+  const base = ballAngleBam >>> 0;
+  const half = ANG90 >>> 1;
+  const step = Math.floor(ANG90 / 40) >>> 0;
 
-  for (const t of all) {
-    if (t === player || t.removed) continue;
-    if (!(t.flags & MobjFlags.SHOOTABLE) || t.health <= 0) continue;
-
-    const tx = FixedToFloat(t.x);
-    const ty = FixedToFloat(t.y);
-    const dx = tx - px;
-    const dy = ty - py;
-    const dist = Math.hypot(dx, dy);
-    if (dist < 16 || dist > 2048) continue;
-
-    const nx = dx / dist;
-    const ny = dy / dist;
-    const dot = nx * ax + ny * ay;
-    if (dot < 0.3) continue;
-
-    damageActor(t, 40 + (pRandom() % 120), player);
+  for (let i = 0; i < 40; i++) {
+    const an = (base - half + step * i) >>> 0;
+    let damage = 0;
+    for (let j = 0; j < 15; j++) {
+      damage += (pRandom() & 7) + 1;
+    }
+    const result = performHitscan(player, an, damage, allMobjs, mapData, { accurate: true });
+    if (result?.hit && result.target) {
+      damageActor(result.target, damage, player);
+    }
   }
 }
