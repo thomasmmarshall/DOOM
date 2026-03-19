@@ -10,6 +10,12 @@ import { FixedToFloat } from '../core/fixed';
 import type { MapData } from '../level/types';
 import { ML_BLOCKING, ML_TWOSIDED } from '../level/types';
 import { findSectorAtPoint } from '../level';
+import {
+  collectShootIntercepts,
+  getBlockmapView,
+  lineOpening,
+  type BlockmapView,
+} from '../level/pathTraverse';
 import { pRandom } from '../core';
 import { doomAngleToThreeRadians } from '../core/coordinates';
 import { isSkyFlat } from '../renderer/doomLighting';
@@ -269,9 +275,229 @@ export function lineAttackShootZ(source: Mobj): number {
   return FixedToFloat(source.z) + FixedToFloat(source.height) / 2 + 8;
 }
 
+/** P_AimLineAttack / P_BulletSlope aim distance: `16*64` map units (p_pspr.c). */
+const AIMLINE_RANGE = 1024;
+
+function traceEndXY(sx: number, sy: number, angleBam: number, dist: number): { ex: number; ey: number } {
+  const rad = doomAngleToThreeRadians(angleBam >>> 0);
+  return { ex: sx + Math.cos(rad) * dist, ey: sy + Math.sin(rad) * dist };
+}
+
+function aimLineAttackAtAngle(
+  source: Mobj,
+  angleBam: number,
+  attackRange: number,
+  shootZ: number,
+  mapData: MapData,
+  things: Mobj[],
+  bm: BlockmapView | undefined
+): { slope: number; target?: Mobj } {
+  const sx = FixedToFloat(source.x);
+  const sy = FixedToFloat(source.y);
+  const { ex, ey } = traceEndXY(sx, sy, angleBam, attackRange);
+  let topslope = 100 / 160;
+  let bottomslope = -100 / 160;
+  let aimslope = 0;
+  let linetarget: Mobj | undefined;
+
+  const intercepts = collectShootIntercepts(mapData, sx, sy, ex, ey, source, things, bm);
+
+  for (const intr of intercepts) {
+    const dist = intr.t * attackRange;
+    if (dist <= 1e-6) continue;
+
+    if (intr.kind === 'line') {
+      const line = mapData.linedefs[intr.lineIndex];
+      if ((line.flags & ML_TWOSIDED) === 0) {
+        return { slope: 0 };
+      }
+      const open = lineOpening(mapData, intr.lineIndex);
+      if (!open) {
+        return { slope: 0 };
+      }
+      const { openBottom, openTop } = open;
+      const front = mapData.sectors[mapData.sidedefs[line.sidenum[0]].sector];
+      const back = mapData.sectors[mapData.sidedefs[line.sidenum[1]].sector];
+      if (front.floorheight !== back.floorheight) {
+        const slope = (openBottom - shootZ) / dist;
+        if (slope > bottomslope) bottomslope = slope;
+      }
+      if (front.ceilingheight !== back.ceilingheight) {
+        const slope = (openTop - shootZ) / dist;
+        if (slope < topslope) topslope = slope;
+      }
+      if (topslope <= bottomslope) {
+        return { slope: 0 };
+      }
+      continue;
+    }
+
+    const th = intr.thing;
+    const tz = FixedToFloat(th.z);
+    const thh = FixedToFloat(th.height);
+    const thingtopslope = (tz + thh - shootZ) / dist;
+    if (thingtopslope < bottomslope) continue;
+    const thingbottomslope = (tz - shootZ) / dist;
+    if (thingbottomslope > topslope) continue;
+    let tt = thingtopslope;
+    let tb = thingbottomslope;
+    if (tt > topslope) tt = topslope;
+    if (tb < bottomslope) tb = bottomslope;
+    aimslope = (tt + tb) / 2;
+    linetarget = th;
+    return { slope: aimslope, target: linetarget };
+  }
+
+  return { slope: 0 };
+}
+
+function computeBulletSlope(
+  source: Mobj,
+  mapData: MapData,
+  things: Mobj[],
+  bm: BlockmapView | undefined,
+  shootZ: number
+): number {
+  let an = source.angle >>> 0;
+  let { slope, target } = aimLineAttackAtAngle(source, an, AIMLINE_RANGE, shootZ, mapData, things, bm);
+  if (target) return slope;
+  an = (an + (1 << 26)) >>> 0;
+  ({ slope, target } = aimLineAttackAtAngle(source, an, AIMLINE_RANGE, shootZ, mapData, things, bm));
+  if (target) return slope;
+  an = (an - (2 << 26)) >>> 0;
+  ({ slope } = aimLineAttackAtAngle(source, an, AIMLINE_RANGE, shootZ, mapData, things, bm));
+  return slope;
+}
+
+function resolveShootTraverse(
+  mapData: MapData,
+  sx: number,
+  sy: number,
+  ex: number,
+  ey: number,
+  attackRange: number,
+  shootZ: number,
+  aimslope: number,
+  source: Mobj,
+  damage: number,
+  things: Mobj[],
+  bm: BlockmapView | undefined
+): HitscanResult {
+  const dx = ex - sx;
+  const dy = ey - sy;
+  const intercepts = collectShootIntercepts(mapData, sx, sy, ex, ey, source, things, bm);
+
+  const wallPuffResult = (lineIndex: number, t: number): HitscanResult => {
+    const adj = Math.max(0, t - 4 / attackRange);
+    const hx = sx + dx * adj;
+    const hy = sy + dy * adj;
+    const hz = shootZ + aimslope * (adj * attackRange);
+    const line = mapData.linedefs[lineIndex];
+    const front = mapData.sectors[mapData.sidedefs[line.sidenum[0]].sector];
+    if (isSkyFlat(front.ceilingpic)) {
+      if (hz > front.ceilingheight) {
+        return {
+          hit: false,
+          distance: attackRange,
+          damage,
+          hitPoint: { x: hx, y: hy, z: hz },
+          hitSky: true,
+        };
+      }
+      if (line.sidenum[1] !== -1) {
+        const back = mapData.sectors[mapData.sidedefs[line.sidenum[1]].sector];
+        if (isSkyFlat(back.ceilingpic)) {
+          return {
+            hit: false,
+            distance: attackRange,
+            damage,
+            hitPoint: { x: hx, y: hy, z: hz },
+            hitSky: true,
+          };
+        }
+      }
+    }
+    return {
+      hit: false,
+      distance: t * attackRange,
+      damage,
+      hitPoint: { x: hx, y: hy, z: hz },
+    };
+  };
+
+  for (const intr of intercepts) {
+    const { t } = intr;
+    if (t <= 0 || t > 1) continue;
+
+    if (intr.kind === 'line') {
+      const line = mapData.linedefs[intr.lineIndex];
+      if ((line.flags & ML_TWOSIDED) === 0) {
+        return wallPuffResult(intr.lineIndex, t);
+      }
+      const open = lineOpening(mapData, intr.lineIndex);
+      if (!open) {
+        return wallPuffResult(intr.lineIndex, t);
+      }
+      const dist = t * attackRange;
+      const front = mapData.sectors[mapData.sidedefs[line.sidenum[0]].sector];
+      const back = mapData.sectors[mapData.sidedefs[line.sidenum[1]].sector];
+      const { openBottom, openTop } = open;
+
+      if (front.floorheight !== back.floorheight) {
+        const slope = (openBottom - shootZ) / dist;
+        if (slope > aimslope) {
+          return wallPuffResult(intr.lineIndex, t);
+        }
+      }
+      if (front.ceilingheight !== back.ceilingheight) {
+        const slope = (openTop - shootZ) / dist;
+        if (slope < aimslope) {
+          return wallPuffResult(intr.lineIndex, t);
+        }
+      }
+      continue;
+    }
+
+    const th = intr.thing;
+    if (!(th.flags & MobjFlags.SHOOTABLE) || th.health <= 0) continue;
+    const dist = t * attackRange;
+    const tz = FixedToFloat(th.z);
+    const thh = FixedToFloat(th.height);
+    const thingtopslope = (tz + thh - shootZ) / dist;
+    if (thingtopslope < aimslope) continue;
+    const thingbottomslope = (tz - shootZ) / dist;
+    if (thingbottomslope > aimslope) continue;
+
+    const adj = Math.max(0, t - 10 / attackRange);
+    const hx = sx + dx * adj;
+    const hy = sy + dy * adj;
+    const hz = shootZ + aimslope * (adj * attackRange);
+    return {
+      hit: true,
+      target: th,
+      distance: t * attackRange,
+      damage,
+      hitPoint: { x: hx, y: hy, z: hz },
+    };
+  }
+
+  const endX = sx + dx;
+  const endY = sy + dy;
+  return {
+    hit: false,
+    distance: attackRange,
+    damage,
+    hitPoint: {
+      x: endX,
+      y: endY,
+      z: shootZ + aimslope * attackRange,
+    },
+    hitSky: isSkyCeilingPoint(endX, endY, mapData),
+  };
+}
+
 /**
- * Distance along ray to first wall hit, or maxRange if none.
- * @param shootZ — map Z used for two-sided openings (PTR_ShootTraverse, aimslope 0).
+ * Distance along ray to first wall hit, or maxRange if none (projectiles; horizontal aimslope 0).
  */
 export function getRayToWallDistance(
   startX: number,
@@ -282,54 +508,36 @@ export function getRayToWallDistance(
   mapData: MapData,
   shootZ: number
 ): number {
-  let minT = maxRange;
-  for (const line of mapData.linedefs) {
-    const v1 = mapData.vertexes[line.v1];
-    const v2 = mapData.vertexes[line.v2];
-    const segDx = v2.x - v1.x;
-    const segDy = v2.y - v1.y;
-    const denom = dirX * segDy - dirY * segDx;
-    if (Math.abs(denom) < 1e-6) continue;
-    const t = ((v1.x - startX) * segDy - (v1.y - startY) * segDx) / denom;
-    const u = ((startX - v1.x) * dirY - (startY - v1.y) * dirX) / -denom;
-    if (t < 0 || u < 0 || u > 1) continue;
-    if (t >= minT) continue;
+  const ex = startX + dirX * maxRange;
+  const ey = startY + dirY * maxRange;
+  const bm = getBlockmapView(mapData.blockmap);
+  const intercepts = collectShootIntercepts(mapData, startX, startY, ex, ey, undefined, [], bm);
+
+  for (const intr of intercepts) {
+    if (intr.kind !== 'line') continue;
+    const { t } = intr;
+    const line = mapData.linedefs[intr.lineIndex];
     const twoSided = (line.flags & ML_TWOSIDED) !== 0;
     const blocking = (line.flags & ML_BLOCKING) !== 0;
-    if (!twoSided || blocking) {
-      minT = t;
-      continue;
+    if (!twoSided || line.sidenum[1] === -1 || blocking) {
+      return t * maxRange;
     }
-    if (line.sidenum[0] === -1) continue;
-    if (line.sidenum[1] === -1) {
-      minT = t;
-      continue;
+    const open = lineOpening(mapData, intr.lineIndex);
+    if (!open) {
+      return t * maxRange;
     }
-    const frontSector = mapData.sectors[mapData.sidedefs[line.sidenum[0]].sector];
-    const backSector = mapData.sectors[mapData.sidedefs[line.sidenum[1]].sector];
-    const frontFloor = frontSector.floorheight;
-    const backFloor = backSector.floorheight;
-    const frontCeil = frontSector.ceilingheight;
-    const backCeil = backSector.ceilingheight;
-    const openBottom = Math.max(frontFloor, backFloor);
-    const openTop = Math.min(frontCeil, backCeil);
+    const front = mapData.sectors[mapData.sidedefs[line.sidenum[0]].sector];
+    const back = mapData.sectors[mapData.sidedefs[line.sidenum[1]].sector];
+    const { openBottom, openTop } = open;
     if (openTop <= openBottom) {
-      minT = t;
-      continue;
+      return t * maxRange;
     }
-    // Horizontal trace: same tests as PTR_ShootTraverse with aimslope == 0.
-    let blocked = false;
-    if (frontFloor !== backFloor && openBottom > shootZ) {
-      blocked = true;
-    }
-    if (!blocked && frontCeil !== backCeil && openTop < shootZ) {
-      blocked = true;
-    }
-    if (blocked) {
-      minT = t;
-    }
+    let hit = false;
+    if (front.floorheight !== back.floorheight && openBottom > shootZ) hit = true;
+    if (!hit && front.ceilingheight !== back.ceilingheight && openTop < shootZ) hit = true;
+    if (hit) return t * maxRange;
   }
-  return minT;
+  return maxRange;
 }
 
 /** First positive distance along ray (start + t*dir) to circle at (cx,cy) radius R, or Infinity. */
@@ -353,9 +561,7 @@ function rayCircleIntersection(
 }
 
 /**
- * Perform hitscan attack
- * Instant-hit weapon like pistol, shotgun, chaingun.
- * Uses ray-circle hit test and ray-vs-wall trace so walls block shots.
+ * Perform hitscan (P_LineAttack + blockmap intercepts + P_BulletSlope).
  */
 export function performHitscan(
   source: Mobj,
@@ -363,11 +569,12 @@ export function performHitscan(
   damage: number,
   allMobjs: Mobj[],
   mapData: MapData | undefined,
-  options?: { accurate?: boolean; maxRange?: number; spreadBits?: number }
+  options?: { accurate?: boolean; maxRange?: number; spreadBits?: number; aimMode?: 'bullet' | 'melee' }
 ): HitscanResult | null {
   const accurate = options?.accurate ?? false;
   const range = options?.maxRange ?? 2048;
   const spreadBits = options?.spreadBits;
+  const aimMode = options?.aimMode ?? 'bullet';
 
   let ang = angleBam >>> 0;
   if (spreadBits) {
@@ -377,59 +584,74 @@ export function performHitscan(
   }
 
   const finalAngle = doomAngleToThreeRadians(ang);
-
   const startX = FixedToFloat(source.x);
   const startY = FixedToFloat(source.y);
   const startZ = lineAttackShootZ(source);
-
   const dirX = Math.cos(finalAngle);
   const dirY = Math.sin(finalAngle);
+  const endX = startX + dirX * range;
+  const endY = startY + dirY * range;
 
-  const wallHitDist = mapData ? getRayToWallDistance(startX, startY, dirX, dirY, range, mapData, startZ) : range;
-
-  let closestDist = wallHitDist;
-  let closestTarget: Mobj | undefined;
-
-  for (const target of allMobjs) {
-    if (target === source) continue;
-    if (!(target.flags & MobjFlags.SHOOTABLE)) continue;
-    if (target.health <= 0) continue;
-
-    const targetX = FixedToFloat(target.x);
-    const targetY = FixedToFloat(target.y);
-    const targetZ = FixedToFloat(target.z);
-    const targetHeight = FixedToFloat(target.height);
-    const targetRadius = FixedToFloat(target.radius);
-
-    const t = rayCircleIntersection(startX, startY, dirX, dirY, targetX, targetY, targetRadius);
-    if (t <= 0 || t >= closestDist) continue;
-    if (startZ < targetZ || startZ > targetZ + targetHeight) continue;
-
-    closestDist = t;
-    closestTarget = target;
-  }
-
-  if (closestTarget) {
+  if (!mapData) {
+    let closestDist = range;
+    let closestTarget: Mobj | undefined;
+    for (const target of allMobjs) {
+      if (target === source) continue;
+      if (!(target.flags & MobjFlags.SHOOTABLE)) continue;
+      if (target.health <= 0) continue;
+      const targetX = FixedToFloat(target.x);
+      const targetY = FixedToFloat(target.y);
+      const targetZ = FixedToFloat(target.z);
+      const targetHeight = FixedToFloat(target.height);
+      const targetRadius = FixedToFloat(target.radius);
+      const t = rayCircleIntersection(startX, startY, dirX, dirY, targetX, targetY, targetRadius);
+      if (t <= 0 || t >= closestDist) continue;
+      if (startZ < targetZ || startZ > targetZ + targetHeight) continue;
+      closestDist = t;
+      closestTarget = target;
+    }
+    if (closestTarget) {
+      return {
+        hit: true,
+        target: closestTarget,
+        distance: closestDist,
+        damage,
+        hitPoint: {
+          x: startX + dirX * closestDist,
+          y: startY + dirY * closestDist,
+          z: FixedToFloat(closestTarget.z),
+        },
+      };
+    }
     return {
-      hit: true,
-      target: closestTarget,
-      distance: closestDist,
+      hit: false,
+      distance: range,
       damage,
-      hitPoint: {
-        x: startX + dirX * closestDist,
-        y: startY + dirY * closestDist,
-        z: FixedToFloat(closestTarget.z),
-      },
+      hitPoint: { x: endX, y: endY, z: startZ },
     };
   }
 
-  return {
-    hit: false,
-    distance: range,
+  const bm = getBlockmapView(mapData.blockmap);
+  const shootZ = startZ;
+  const aimSlope =
+    aimMode === 'melee'
+      ? aimLineAttackAtAngle(source, ang, range, shootZ, mapData, allMobjs, bm).slope
+      : computeBulletSlope(source, mapData, allMobjs, bm, shootZ);
+
+  return resolveShootTraverse(
+    mapData,
+    startX,
+    startY,
+    endX,
+    endY,
+    range,
+    shootZ,
+    aimSlope,
+    source,
     damage,
-    hitPoint: { x: startX + dirX * range, y: startY + dirY * range, z: startZ },
-    hitSky: mapData ? isSkyCeilingPoint(startX + dirX * range, startY + dirY * range, mapData) : false,
-  };
+    allMobjs,
+    bm
+  );
 }
 
 /**

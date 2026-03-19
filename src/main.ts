@@ -912,7 +912,7 @@ class DoomGame {
         const dmg = damageActor(result.target, result.damage, player);
         if (dmg.killed) this.playDeathSound(result.target.type);
         this.spawnPuff(result.hitPoint.x, result.hitPoint.y, result.hitPoint.z);
-      } else if (result && !result.hit) {
+      } else if (result && !result.hit && !result.hitSky) {
         this.spawnPuff(result.hitPoint.x, result.hitPoint.y, result.hitPoint.z);
       }
     };
@@ -943,6 +943,7 @@ class DoomGame {
         performHitscan(player, angleBam, punchDamage(berserk), allMobjs, this.mapData, {
           accurate: false,
           maxRange: 64,
+          aimMode: 'melee',
         })
       );
     } else if (w === WeaponType.CHAINSAW) {
@@ -950,6 +951,7 @@ class DoomGame {
         performHitscan(player, angleBam, chainsawDamage(), allMobjs, this.mapData, {
           accurate: false,
           maxRange: 65,
+          aimMode: 'melee',
         })
       );
     } else if (w === WeaponType.ROCKET_LAUNCHER) {
