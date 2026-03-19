@@ -951,9 +951,9 @@ class DoomGame {
 
     // Update weapon every frame (not just in game tick)
     if (this.weaponRenderer && this.playerMobj?.player?.weapon && !this.playerDied) {
-      const bob = FixedToFloat(this.playerMobj.player.bob);
+      const bob = this.playerMobj.player.bob;
       const showFlash = this.weaponFlashUntilTick > this.tickCount;
-      this.weaponRenderer.update(this.playerMobj.player.weapon, bob, showFlash);
+      this.weaponRenderer.update(this.playerMobj.player.weapon, bob, this.tickCount, showFlash);
     }
 
     // Render scene

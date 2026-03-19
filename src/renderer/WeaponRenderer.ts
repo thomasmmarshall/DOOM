@@ -9,6 +9,43 @@ import type { WADReader } from '../wad';
 import { PatchDecoder } from '../graphics';
 import type { PlayerWeapon } from '../weapons/WeaponSystem';
 import { WeaponType, WeaponState } from '../weapons/WeaponSystem';
+import { FRACUNIT, FixedMul, FixedToInt, IntToFixed, type Fixed } from '../core/fixed';
+import { finecosine, finesine, FINEANGLES, FINEMASK } from '../core/tables';
+
+/** linuxdoom-1.10 p_pspr.c */
+const WEAPONTOP = 32 * FRACUNIT;
+/** r_things.c — vertical anchor inside texturemid (not the same as centery on short views). */
+const BASEYCENTER = 100;
+
+const VIEW_WIDTH = 320;
+const VIEW_HEIGHT = 168;
+
+function weaponPspriteSxSy(bob: Fixed, levelTime: number): { sx: Fixed; sy: Fixed } {
+  let ang = (128 * levelTime) & FINEMASK;
+  const sx = FRACUNIT + FixedMul(bob, finecosine[ang]);
+  ang &= FINEANGLES / 2 - 1;
+  const sy = WEAPONTOP + FixedMul(bob, finesine[ang]);
+  return { sx, sy };
+}
+
+/**
+ * Center of patch in weapon ortho space (origin bottom-left of 320×168, Y up),
+ * matching R_DrawPSprite + R_DrawVisSprite with pspritescale = FRACUNIT (320-wide).
+ */
+function pspritePatchCenterPx(sx: Fixed, sy: Fixed, patch: CachedWeaponSprite): { x: number; y: number } {
+  const centerx = VIEW_WIDTH / 2;
+  const centery = VIEW_HEIGHT / 2;
+  const xLeft = FixedToInt(
+    IntToFixed(centerx) + sx - IntToFixed(160) - IntToFixed(patch.leftoffset),
+  );
+  const texturemid =
+    IntToFixed(BASEYCENTER) + FRACUNIT / 2 - (sy - IntToFixed(patch.topoffset));
+  const sprtopscreen = IntToFixed(centery) - texturemid;
+  const topFromTop = sprtopscreen / FRACUNIT;
+  const centerFromTop = topFromTop + patch.height / 2;
+  const y = VIEW_HEIGHT - centerFromTop;
+  return { x: xLeft + patch.width / 2, y };
+}
 
 /**
  * Weapon sprite frame info
@@ -79,6 +116,8 @@ const WEAPON_FLASH: Map<WeaponType, { spriteName: string; frame: string }> = new
   [WeaponType.ROCKET_LAUNCHER, { spriteName: 'MISF', frame: 'A' }],
   [WeaponType.PLASMA_RIFLE, { spriteName: 'PLSF', frame: 'A' }],
   [WeaponType.BFG9000, { spriteName: 'BFGF', frame: 'A' }],
+  /** S_DSGUNFLASH1: SPR_SHT2, frame 8 + fullbright (info.c). */
+  [WeaponType.SUPER_SHOTGUN, { spriteName: 'SHT2', frame: 'I' }],
 ]);
 
 export class WeaponRenderer {
@@ -91,7 +130,6 @@ export class WeaponRenderer {
   private spriteCache: Map<string, CachedWeaponSprite>;
   private currentFrame: number = 0;
   private animationTimer: number = 0;
-  private bobOffset: number = 0;
 
   constructor(wad: WADReader, palette: Uint8ClampedArray) {
     this.wad = wad;
@@ -165,8 +203,14 @@ export class WeaponRenderer {
   /**
    * Update weapon sprite based on weapon state.
    * showFlash: from game tick (true for ~4 ticks after firing) so muzzle flash is visible.
+   * bob / levelTime: same as player->bob and leveltime in linuxdoom A_WeaponReady / R_DrawPSprite.
    */
-  update(weapon: PlayerWeapon, playerBob: number = 0, showFlash: boolean = false): void {
+  update(
+    weapon: PlayerWeapon,
+    bob: Fixed,
+    levelTime: number,
+    showFlash: boolean = false,
+  ): void {
     const frames = WEAPON_FRAMES.get(weapon.currentWeapon);
     if (!frames || frames.length === 0) {
       console.error(`No frames for weapon ${WeaponType[weapon.currentWeapon]} (type: ${weapon.currentWeapon})`);
@@ -209,8 +253,7 @@ export class WeaponRenderer {
       return;
     }
 
-    // Update bob offset
-    this.bobOffset = playerBob;
+    const { sx, sy } = weaponPspriteSxSy(bob, levelTime);
 
     // Create or update weapon mesh
     if (!this.weaponMesh) {
@@ -236,13 +279,7 @@ export class WeaponRenderer {
 
     this.weaponMesh.scale.set(sprite.width, sprite.height, 1);
 
-    const bobPhase = this.animationTimer * 0.35;
-    const bobX = Math.sin(bobPhase) * Math.min(6, this.bobOffset * 0.08);
-    const bobY = Math.abs(Math.cos(bobPhase)) * Math.min(8, this.bobOffset * 0.12);
-    const xPos = 160 + bobX;
-    // Ortho: top=168, bottom=0. Put gun at bottom of view (y=0 = bottom).
-    const yPos = sprite.height * 0.5 - bobY;
-
+    const { x: xPos, y: yPos } = pspritePatchCenterPx(sx, sy, sprite);
     this.weaponMesh.position.set(xPos, yPos, 0);
 
     const flashVisible = showFlash && WEAPON_FLASH.has(weapon.currentWeapon);
@@ -267,7 +304,8 @@ export class WeaponRenderer {
         flashMat.map = flashSprite.texture;
         flashMat.needsUpdate = true;
         this.flashMesh.scale.set(flashSprite.width, flashSprite.height, 1);
-        this.flashMesh.position.set(xPos, yPos, 0.01);
+        const flashPos = pspritePatchCenterPx(sx, sy, flashSprite);
+        this.flashMesh.position.set(flashPos.x, flashPos.y, 0.01);
         this.flashMesh.visible = true;
       }
     } else if (this.flashMesh) {
