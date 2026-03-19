@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { IntToFixed } from '../core/fixed';
-import { createPlayerMobj } from '../game/mobj';
+import { FixedToFloat, IntToFixed } from '../core/fixed';
+import { createPlayerMobj, MobjFlags, type Mobj } from '../game/mobj';
 import { ML_TWOSIDED, type MapData, type MapSideDef } from '../level/types';
 import { applyCollision } from './collision';
 import { applyZMomentum } from './movement';
@@ -93,5 +93,37 @@ describe('door collision', () => {
     applyZMomentum(player);
 
     expect(player.z).toBe(IntToFixed(0));
+  });
+});
+
+describe('overlap recovery (unstick)', () => {
+  it('allows sliding out when already overlapping a SOLID mobj', () => {
+    const mapData = createDoorwayMap(128);
+    const player = createPlayerMobj(IntToFixed(48), IntToFixed(32), IntToFixed(0), 0);
+    player.floorz = IntToFixed(0);
+    player.ceilingz = IntToFixed(128);
+
+    const barrel: Mobj = {
+      x: IntToFixed(40),
+      y: IntToFixed(32),
+      z: IntToFixed(0),
+      angle: 0,
+      momx: 0,
+      momy: 0,
+      momz: 0,
+      radius: 16 << 16,
+      height: 42 << 16,
+      floorz: IntToFixed(0),
+      ceilingz: IntToFixed(128),
+      flags: MobjFlags.SOLID,
+      health: 10,
+      type: 9999,
+      removed: false,
+    };
+
+    // Overlapping (center dist 8 < 32); +x increases separation from barrel — must not soft-lock
+    player.momx = IntToFixed(10);
+    applyCollision(player, mapData, [barrel]);
+    expect(FixedToFloat(player.x)).toBeGreaterThan(48);
   });
 });

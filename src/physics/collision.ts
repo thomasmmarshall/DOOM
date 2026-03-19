@@ -15,38 +15,37 @@ import { MAXSTEPHEIGHT } from './constants';
 // Maximum step height in DOOM units
 const MAX_STEP_HEIGHT = FixedToFloat(MAXSTEPHEIGHT);
 
-/**
- * Check if a circle intersects with a line segment
- */
-function circleLineIntersection(
-  cx: number, cy: number, radius: number,
-  x1: number, y1: number, x2: number, y2: number
-): boolean {
-  // Vector from line start to circle center
-  const dx = cx - x1;
-  const dy = cy - y1;
-
-  // Line direction vector
+/** Squared distance from (px,py) to the closest point on segment (x1,y1)-(x2,y2). */
+function distancePointToSegmentSq(
+  px: number,
+  py: number,
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number
+): number {
   const lx = x2 - x1;
   const ly = y2 - y1;
-
-  // Project circle center onto line
-  const lineLength = Math.sqrt(lx * lx + ly * ly);
-  if (lineLength === 0) return false;
-
-  const t = Math.max(0, Math.min(1, (dx * lx + dy * ly) / (lineLength * lineLength)));
-
-  // Closest point on line segment
-  const closestX = x1 + t * lx;
-  const closestY = y1 + t * ly;
-
-  // Distance from circle center to closest point
-  const distX = cx - closestX;
-  const distY = cy - closestY;
-  const distance = Math.sqrt(distX * distX + distY * distY);
-
-  return distance < radius;
+  const lenSq = lx * lx + ly * ly;
+  if (lenSq === 0) {
+    const dx = px - x1;
+    const dy = py - y1;
+    return dx * dx + dy * dy;
+  }
+  let t = ((px - x1) * lx + (py - y1) * ly) / lenSq;
+  t = Math.max(0, Math.min(1, t));
+  const cx = x1 + t * lx;
+  const cy = y1 + t * ly;
+  const dx = px - cx;
+  const dy = py - cy;
+  return dx * dx + dy * dy;
 }
+
+/**
+ * If already penetrating geometry, still allow moves that move *out* (or tangent), so the player
+ * cannot get permanently stuck inside a wall or inside another SOLID mobj.
+ */
+const UNSTUCK_EPS_SQ = 1e-4;
 
 interface LineOpening {
   openTop: number;
@@ -96,59 +95,86 @@ function canFitThroughLine(mobj: Mobj, linedef: MapData['linedefs'][number], map
   return true;
 }
 
+function wallSegmentBlocksMove(
+  oldX: number,
+  oldY: number,
+  newX: number,
+  newY: number,
+  radius: number,
+  linedef: MapData['linedefs'][number],
+  mapData: MapData
+): boolean {
+  const v1 = mapData.vertexes[linedef.v1];
+  const v2 = mapData.vertexes[linedef.v2];
+  const radiusSq = radius * radius;
+  const newDistSq = distancePointToSegmentSq(newX, newY, v1.x, v1.y, v2.x, v2.y);
+  const oldDistSq = distancePointToSegmentSq(oldX, oldY, v1.x, v1.y, v2.x, v2.y);
+
+  const penetratingNew = newDistSq < radiusSq;
+  if (!penetratingNew) {
+    return false;
+  }
+
+  const penetratingOld = oldDistSq < radiusSq;
+  if (!penetratingOld) {
+    return true; // entering solid from a valid position — block
+  }
+  // Already overlapping: only block if pushing further into the wall
+  if (newDistSq < oldDistSq - UNSTUCK_EPS_SQ) {
+    return true;
+  }
+  return false;
+}
+
 /**
  * Check if new position collides with walls
  * Returns true if movement is allowed, false if blocked
  */
-export function checkWallCollision(
-  mobj: Mobj,
-  newX: Fixed,
-  newY: Fixed,
-  mapData: MapData
-): boolean {
-  // Convert to float for easier calculation
+export function checkWallCollision(mobj: Mobj, newX: Fixed, newY: Fixed, mapData: MapData): boolean {
+  if (mobj.flags & MobjFlags.NOCLIP) {
+    return true;
+  }
+
   const x = FixedToFloat(newX);
   const y = FixedToFloat(newY);
+  const oldX = FixedToFloat(mobj.x);
+  const oldY = FixedToFloat(mobj.y);
   const radius = FixedToFloat(mobj.radius);
 
-  // Check against all linedefs
   for (const linedef of mapData.linedefs) {
-    // Get vertices
-    const v1 = mapData.vertexes[linedef.v1];
-    const v2 = mapData.vertexes[linedef.v2];
-
-    // Check if line is blocking
     const blocking = (linedef.flags & ML_BLOCKING) !== 0;
     const twoSided = (linedef.flags & ML_TWOSIDED) !== 0;
 
-    // One-sided walls always block
-    // Two-sided walls only block if ML_BLOCKING is set
     if (!twoSided || blocking) {
-      // Check circle-line intersection
-      if (circleLineIntersection(x, y, radius, v1.x, v1.y, v2.x, v2.y)) {
-        return false; // Blocked
+      if (wallSegmentBlocksMove(oldX, oldY, x, y, radius, linedef, mapData)) {
+        return false;
       }
-    } else if (circleLineIntersection(x, y, radius, v1.x, v1.y, v2.x, v2.y) &&
-               !canFitThroughLine(mobj, linedef, mapData)) {
-      return false; // Opening is too small or too low
+    } else {
+      if (canFitThroughLine(mobj, linedef, mapData)) {
+        continue;
+      }
+      if (wallSegmentBlocksMove(oldX, oldY, x, y, radius, linedef, mapData)) {
+        return false;
+      }
     }
   }
 
-  return true; // Movement allowed
+  return true;
 }
 
 /**
  * Check if new position collides with any SOLID mobj (barrels, pillars, etc.)
  * Returns true if no mobj collision, false if blocked.
  */
-function checkMobjCollision(
-  mobj: Mobj,
-  newX: Fixed,
-  newY: Fixed,
-  otherMobjs: Mobj[]
-): boolean {
+function checkMobjCollision(mobj: Mobj, newX: Fixed, newY: Fixed, otherMobjs: Mobj[]): boolean {
+  if (mobj.flags & MobjFlags.NOCLIP) {
+    return true;
+  }
+
   const x = FixedToFloat(newX);
   const y = FixedToFloat(newY);
+  const oldX = FixedToFloat(mobj.x);
+  const oldY = FixedToFloat(mobj.y);
   const radius = FixedToFloat(mobj.radius);
 
   for (const other of otherMobjs) {
@@ -158,12 +184,24 @@ function checkMobjCollision(
     const ox = FixedToFloat(other.x);
     const oy = FixedToFloat(other.y);
     const orad = FixedToFloat(other.radius);
-    const dx = x - ox;
-    const dy = y - oy;
-    const distSq = dx * dx + dy * dy;
     const minDist = radius + orad;
-    if (distSq < minDist * minDist) {
-      return false; // Blocked
+    const minDistSq = minDist * minDist;
+
+    const dxNew = x - ox;
+    const dyNew = y - oy;
+    const distSqNew = dxNew * dxNew + dyNew * dyNew;
+    if (distSqNew >= minDistSq) {
+      continue;
+    }
+
+    const dxOld = oldX - ox;
+    const dyOld = oldY - oy;
+    const distSqOld = dxOld * dxOld + dyOld * dyOld;
+    if (distSqOld >= minDistSq) {
+      return false;
+    }
+    if (distSqNew < distSqOld - UNSTUCK_EPS_SQ) {
+      return false;
     }
   }
   return true;
