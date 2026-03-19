@@ -108,7 +108,7 @@ class DoomGame {
     document.body.appendChild(this.gameContainer);
 
     this.viewContainer = document.createElement('div');
-    this.viewContainer.style.cssText = 'position:relative; flex:0 0 84%; width:100%; overflow:visible;';
+    this.viewContainer.style.cssText = 'position:relative; flex:1 1 auto; min-height:0; width:100%; overflow:visible;';
     this.gameContainer.appendChild(this.viewContainer);
     this.viewContainer.appendChild(this.renderer.domElement);
 
@@ -172,6 +172,7 @@ class DoomGame {
     if (this.viewContainer && this.borderFrame) {
       this.borderFrame.resize(this.viewContainer.offsetWidth, this.viewContainer.offsetHeight);
     }
+    this.statusBar?.syncLayout(displayWidth);
   }
 
   private onResize(): void {
@@ -434,12 +435,14 @@ class DoomGame {
       this.statusBar = new StatusBar(wad, rgbaPalette, this.gameContainer);
       this.borderFrame = new BorderFrame(wad, rgbaPalette);
       await this.borderFrame.init();
+      this.borderFrame.setViewportGameSize(DOOM_INTERNAL_WIDTH, DOOM_VIEW_HEIGHT);
       if (this.viewContainer) {
         this.viewContainer.appendChild(this.borderFrame.getCanvas());
         this.borderFrame.resize(this.viewContainer.offsetWidth, this.viewContainer.offsetHeight);
       }
       // soundManager and musicPlayer created in init()
       await this.statusBar.init();
+      this.onResize();
       this.sectorBaseLightLevels = this.mapData.sectors.map((sector) => sector.lightlevel);
       this.musicPlayer?.prepareMapMusic(mapName);
 

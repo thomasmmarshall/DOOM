@@ -1,117 +1,160 @@
 /**
- * Border Frame
- * Draws the classic DOOM border around the view area
- * Based on linuxdoom-1.10/r_draw.c R_FillBackScreen
+ * View border (reduced screen size only)
+ * Matches linuxdoom-1.10/r_draw.c R_FillBackScreen and patch placement.
+ *
+ * When scaledviewwidth == 320, vanilla returns immediately — no border.
  */
 
 import type { WADReader } from '../wad';
 import { PatchDecoder } from '../graphics';
+import { FlatLoader } from '../graphics/FlatLoader';
 
-const BORDER_BASE_SIZE = 8;
-const DOOM_VIEW_WIDTH = 320;
+const SCREENWIDTH = 320;
+const SBARHEIGHT = 32;
+/** R_FillBackScreen fills y in [0, SCREENHEIGHT - SBARHEIGHT) */
+const VIEW_AREA_HEIGHT = 200 - SBARHEIGHT;
+const BORDER = 8;
+
+type BrdrPatch = { canvas: HTMLCanvasElement; leftoffset: number; topoffset: number };
 
 export class BorderFrame {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
   private wad: WADReader;
   private palette: Uint8ClampedArray;
-  private patches: Map<string, HTMLCanvasElement> = new Map();
+  private patches: Map<string, BrdrPatch> = new Map();
+  private flatTile: HTMLCanvasElement | null = null;
   private initialized = false;
-  private viewWidth = 320;
-  private viewHeight = 168;
-  /** Scaled border thickness so it stays ~2.5% of view width at any resolution. */
-  private borderSizePx = BORDER_BASE_SIZE;
+  /** r_draw: scaledviewwidth — interior 3D width in framebuffer pixels. */
+  private scaledViewWidth = SCREENWIDTH;
+  /** r_draw: viewheight — interior 3D height. */
+  private viewHeight = VIEW_AREA_HEIGHT;
 
   constructor(wad: WADReader, palette: Uint8ClampedArray) {
     this.wad = wad;
     this.palette = palette;
 
     this.canvas = document.createElement('canvas');
-    this.canvas.width = this.viewWidth + this.borderSizePx * 2;
-    this.canvas.height = this.viewHeight + this.borderSizePx * 2;
+    this.canvas.width = 320;
+    this.canvas.height = 168;
     this.canvas.style.position = 'absolute';
-    this.canvas.style.top = `-${this.borderSizePx}px`;
-    this.canvas.style.left = `-${this.borderSizePx}px`;
+    this.canvas.style.top = '0';
+    this.canvas.style.left = '0';
     this.canvas.style.imageRendering = 'pixelated';
-    this.canvas.style.imageRendering = 'crisp-edges';
     this.canvas.style.pointerEvents = 'none';
     this.canvas.style.zIndex = '500';
 
     this.ctx = this.canvas.getContext('2d')!;
+    this.ctx.imageSmoothingEnabled = false;
   }
 
   /**
-   * Resize border to frame a view of the given dimensions (e.g. viewContainer size).
-   * Call when the view is first shown and on window resize.
+   * Game viewport size (same units as vanilla `scaledviewwidth` / `viewheight`).
+   * Full-screen DOOM uses 320 × 168 above the status bar → no border drawn.
    */
+  setViewportGameSize(scaledViewWidth: number, viewHeight: number): void {
+    this.scaledViewWidth = scaledViewWidth;
+    this.viewHeight = viewHeight;
+    this.render();
+  }
+
   resize(viewWidth: number, viewHeight: number): void {
     if (viewWidth <= 0 || viewHeight <= 0) return;
-    this.viewWidth = viewWidth;
-    this.viewHeight = viewHeight;
-    this.borderSizePx = Math.max(BORDER_BASE_SIZE, Math.round(BORDER_BASE_SIZE * (viewWidth / DOOM_VIEW_WIDTH)));
-    this.canvas.width = viewWidth + this.borderSizePx * 2;
-    this.canvas.height = viewHeight + this.borderSizePx * 2;
-    this.canvas.style.top = `-${this.borderSizePx}px`;
-    this.canvas.style.left = `-${this.borderSizePx}px`;
+    this.canvas.style.width = `${viewWidth}px`;
+    this.canvas.style.height = `${viewHeight}px`;
     this.render();
   }
 
   async init(): Promise<void> {
     if (this.initialized) return;
 
-    const names = ['brdr_t', 'brdr_b', 'brdr_l', 'brdr_r', 'brdr_tl', 'brdr_tr', 'brdr_bl', 'brdr_br'];
+    const borderFlatName = this.wad.hasLump('MAP01') ? 'GRNROCK' : 'FLOOR7_2';
+    const flatData = this.wad.readLump(borderFlatName);
+    if (flatData && flatData.byteLength === FlatLoader.FLAT_SIZE) {
+      this.flatTile = FlatLoader.flatToCanvas(flatData, this.palette);
+    }
+
+    const names = ['BRDR_T', 'BRDR_B', 'BRDR_L', 'BRDR_R', 'BRDR_TL', 'BRDR_TR', 'BRDR_BL', 'BRDR_BR'];
     for (const name of names) {
       const data = this.wad.readLump(name);
-      if (data) {
+      if (!data) continue;
+      try {
         const decoded = PatchDecoder.decodePatch(data, this.palette);
-        const c = document.createElement('canvas');
-        c.width = decoded.width;
-        c.height = decoded.height;
-        const ctx = c.getContext('2d')!;
-        const img = ctx.createImageData(decoded.width, decoded.height);
-        img.data.set(decoded.pixels);
-        ctx.putImageData(img, 0, 0);
-        this.patches.set(name, c);
+        const canvas = PatchDecoder.patchToCanvas(decoded);
+        this.patches.set(name, {
+          canvas,
+          leftoffset: decoded.leftoffset,
+          topoffset: decoded.topoffset,
+        });
+      } catch {
+        console.warn(`BorderFrame: failed ${name}`);
       }
     }
 
     this.initialized = true;
+    this.render();
   }
 
   getCanvas(): HTMLCanvasElement {
     return this.canvas;
   }
 
+  private drawPatch(patch: BrdrPatch | undefined, x: number, y: number): void {
+    if (!patch?.canvas.width) return;
+    this.ctx.drawImage(patch.canvas, x - patch.leftoffset, y - patch.topoffset);
+  }
+
+  /**
+   * R_FillBackScreen — buffer is 320 × (200 − 32). Patches use screen coords; V_DrawPatch anchors apply.
+   */
   render(): void {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
-    const t = this.patches.get('brdr_t');
-    const b = this.patches.get('brdr_b');
-    const l = this.patches.get('brdr_l');
-    const r = this.patches.get('brdr_r');
-    const tl = this.patches.get('brdr_tl');
-    const tr = this.patches.get('brdr_tr');
-    const bl = this.patches.get('brdr_bl');
-    const br = this.patches.get('brdr_br');
-
-    if (!t || !b || !l || !r || !tl || !tr || !bl || !br) return;
-
-    const w = this.viewWidth;
-    const h = this.viewHeight;
-    const sz = this.borderSizePx;
-    // WAD patches are 8x8; scale to borderSizePx so border stays visibly thick.
-    const patchSize = 8;
-    for (let x = 0; x < w; x += sz) {
-      this.ctx.drawImage(t, 0, 0, patchSize, patchSize, sz + x, 0, sz, sz);
-      this.ctx.drawImage(b, 0, 0, patchSize, patchSize, sz + x, sz + h, sz, sz);
+    if (this.scaledViewWidth === SCREENWIDTH) {
+      this.canvas.style.display = 'none';
+      return;
     }
-    for (let y = 0; y < h; y += sz) {
-      this.ctx.drawImage(l, 0, 0, patchSize, patchSize, 0, sz + y, sz, sz);
-      this.ctx.drawImage(r, 0, 0, patchSize, patchSize, sz + w, sz + y, sz, sz);
+
+    this.canvas.style.display = 'block';
+
+    const t = this.patches.get('BRDR_T');
+    const b = this.patches.get('BRDR_B');
+    const l = this.patches.get('BRDR_L');
+    const r = this.patches.get('BRDR_R');
+    const tl = this.patches.get('BRDR_TL');
+    const tr = this.patches.get('BRDR_TR');
+    const bl = this.patches.get('BRDR_BL');
+    const br = this.patches.get('BRDR_BR');
+
+    if (!this.flatTile || !t || !b || !l || !r || !tl || !tr || !bl || !br) {
+      return;
     }
-    this.ctx.drawImage(tl, 0, 0, patchSize, patchSize, 0, 0, sz, sz);
-    this.ctx.drawImage(tr, 0, 0, patchSize, patchSize, sz + w, 0, sz, sz);
-    this.ctx.drawImage(bl, 0, 0, patchSize, patchSize, 0, sz + h, sz, sz);
-    this.ctx.drawImage(br, 0, 0, patchSize, patchSize, sz + w, sz + h, sz, sz);
+
+    const viewwindowx = (SCREENWIDTH - this.scaledViewWidth) >> 1;
+    const viewwindowy = (VIEW_AREA_HEIGHT - this.viewHeight) >> 1;
+    const vw = this.scaledViewWidth;
+    const vh = this.viewHeight;
+
+    // R_FillBackScreen: each framebuffer row repeats one 64-wide row of the flat at (y&63).
+    for (let y = 0; y < VIEW_AREA_HEIGHT; y++) {
+      const fy = y & 63;
+      for (let x = 0; x < SCREENWIDTH; x += 64) {
+        this.ctx.drawImage(this.flatTile, 0, fy, 64, 1, x, y, 64, 1);
+      }
+    }
+
+    for (let x = 0; x < vw; x += BORDER) {
+      this.drawPatch(t, viewwindowx + x, viewwindowy - BORDER);
+      this.drawPatch(b, viewwindowx + x, viewwindowy + vh);
+    }
+    for (let y = 0; y < vh; y += BORDER) {
+      this.drawPatch(l, viewwindowx - BORDER, viewwindowy + y);
+      this.drawPatch(r, viewwindowx + vw, viewwindowy + y);
+    }
+
+    this.drawPatch(tl, viewwindowx - BORDER, viewwindowy - BORDER);
+    this.drawPatch(tr, viewwindowx + vw, viewwindowy - BORDER);
+    this.drawPatch(bl, viewwindowx - BORDER, viewwindowy + vh);
+    this.drawPatch(br, viewwindowx + vw, viewwindowy + vh);
   }
 }
