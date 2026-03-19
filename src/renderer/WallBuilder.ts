@@ -33,34 +33,43 @@ export class WallBuilder {
    */
   static buildWalls(mapData: MapData): WallSegment[] {
     const walls: WallSegment[] = [];
-
     for (let i = 0; i < mapData.linedefs.length; i++) {
-      const linedef = mapData.linedefs[i];
+      walls.push(...this.buildWallsForLine(mapData, i));
+    }
+    return walls;
+  }
 
-      // Get vertices
-      const v1 = mapData.vertexes[linedef.v1];
-      const v2 = mapData.vertexes[linedef.v2];
+  /**
+   * Build wall segments for a single linedef (used when a sector height changes).
+   */
+  static buildWallsForLine(mapData: MapData, lineIndex: number): WallSegment[] {
+    const walls: WallSegment[] = [];
+    if (lineIndex < 0 || lineIndex >= mapData.linedefs.length) {
+      return walls;
+    }
 
-      // Get front sidedef (always present)
-      const frontSide = mapData.sidedefs[linedef.sidenum[0]];
-      const frontSector = mapData.sectors[frontSide.sector];
+    const linedef = mapData.linedefs[lineIndex];
+    const v1 = mapData.vertexes[linedef.v1];
+    const v2 = mapData.vertexes[linedef.v2];
+    const frontSide = mapData.sidedefs[linedef.sidenum[0]];
+    const frontSector = mapData.sectors[frontSide.sector];
 
-      // Check if two-sided
-      const twoSided = (linedef.flags & ML_TWOSIDED) !== 0;
-      const backSide = twoSided && linedef.sidenum[1] !== -1
-        ? mapData.sidedefs[linedef.sidenum[1]]
-        : null;
-      const backSector = backSide ? mapData.sectors[backSide.sector] : null;
+    const twoSided = (linedef.flags & ML_TWOSIDED) !== 0;
+    const backSide =
+      twoSided && linedef.sidenum[1] !== -1 ? mapData.sidedefs[linedef.sidenum[1]] : null;
+    const backSector = backSide ? mapData.sectors[backSide.sector] : null;
 
-      if (!twoSided || !backSector) {
-        // One-sided wall - draw middle texture
-        if (frontSide.midtexture !== '-') {
-          const bottomAligned = (linedef.flags & ML_DONTPEGBOTTOM) !== 0;
-          const wall = this.createWall(
-            i,
+    if (!twoSided || !backSector) {
+      if (frontSide.midtexture !== '-') {
+        const bottomAligned = (linedef.flags & ML_DONTPEGBOTTOM) !== 0;
+        walls.push(
+          this.createWall(
+            lineIndex,
             linedef.sidenum[0],
-            v1.x, v1.y,
-            v2.x, v2.y,
+            v1.x,
+            v1.y,
+            v2.x,
+            v2.y,
             frontSector.floorheight,
             frontSector.ceilingheight,
             frontSide.midtexture,
@@ -68,28 +77,27 @@ export class WallBuilder {
             frontSide.textureoffset,
             frontSide.rowoffset,
             bottomAligned
-          );
-          walls.push(wall);
-        }
-      } else {
-        // Two-sided wall - draw upper, middle (if masked), and lower
+          )
+        );
+      }
+    } else {
+      const bothSkyCeilings =
+        isSkyFlat(frontSector.ceilingpic) && isSkyFlat(backSector.ceilingpic);
 
-        // Upper wall (if back ceiling is lower than front ceiling)
-        const bothSkyCeilings =
-          isSkyFlat(frontSector.ceilingpic) &&
-          isSkyFlat(backSector.ceilingpic);
-
-        if (
-          !bothSkyCeilings &&
-          backSector.ceilingheight < frontSector.ceilingheight &&
-          frontSide.toptexture !== '-'
-        ) {
-          const unpegTop = (linedef.flags & ML_DONTPEGTOP) !== 0;
-          const wall = this.createWall(
-            i,
+      if (
+        !bothSkyCeilings &&
+        backSector.ceilingheight < frontSector.ceilingheight &&
+        frontSide.toptexture !== '-'
+      ) {
+        const unpegTop = (linedef.flags & ML_DONTPEGTOP) !== 0;
+        walls.push(
+          this.createWall(
+            lineIndex,
             linedef.sidenum[0],
-            v1.x, v1.y,
-            v2.x, v2.y,
+            v1.x,
+            v1.y,
+            v2.x,
+            v2.y,
             backSector.ceilingheight,
             frontSector.ceilingheight,
             frontSide.toptexture,
@@ -97,18 +105,20 @@ export class WallBuilder {
             frontSide.textureoffset,
             frontSide.rowoffset,
             unpegTop
-          );
-          walls.push(wall);
-        }
+          )
+        );
+      }
 
-        // Lower wall (if back floor is higher than front floor)
-        if (backSector.floorheight > frontSector.floorheight && frontSide.bottomtexture !== '-') {
-          const unpegBottom = (linedef.flags & ML_DONTPEGBOTTOM) !== 0;
-          const wall = this.createWall(
-            i,
+      if (backSector.floorheight > frontSector.floorheight && frontSide.bottomtexture !== '-') {
+        const unpegBottom = (linedef.flags & ML_DONTPEGBOTTOM) !== 0;
+        walls.push(
+          this.createWall(
+            lineIndex,
             linedef.sidenum[0],
-            v1.x, v1.y,
-            v2.x, v2.y,
+            v1.x,
+            v1.y,
+            v2.x,
+            v2.y,
             frontSector.floorheight,
             backSector.floorheight,
             frontSide.bottomtexture,
@@ -116,17 +126,19 @@ export class WallBuilder {
             frontSide.textureoffset,
             frontSide.rowoffset,
             unpegBottom
-          );
-          walls.push(wall);
-        }
+          )
+        );
+      }
 
-        // Middle texture (if present, this is for masked textures like gratings)
-        if (frontSide.midtexture !== '-') {
-          const wall = this.createWall(
-            i,
+      if (frontSide.midtexture !== '-') {
+        walls.push(
+          this.createWall(
+            lineIndex,
             linedef.sidenum[0],
-            v1.x, v1.y,
-            v2.x, v2.y,
+            v1.x,
+            v1.y,
+            v2.x,
+            v2.y,
             frontSector.floorheight,
             frontSector.ceilingheight,
             frontSide.midtexture,
@@ -134,10 +146,9 @@ export class WallBuilder {
             frontSide.textureoffset,
             frontSide.rowoffset,
             false,
-            true // transparent/masked
-          );
-          walls.push(wall);
-        }
+            true
+          )
+        );
       }
     }
 

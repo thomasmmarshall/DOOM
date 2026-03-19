@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import type { MapData } from '../level/types';
 import { findSectorAtPoint } from '../level';
 import type { WADReader } from '../wad';
-import { WallBuilder } from './WallBuilder';
+import { WallBuilder, type WallSegment } from './WallBuilder';
 import { SectorBuilder } from './SectorBuilder';
 import { TextureManager, type TextureInfo } from './TextureManager';
 import { SkyRenderer } from './SkyRenderer';
@@ -82,44 +82,7 @@ export class LevelRenderer {
     console.log(`Built ${walls.length} wall segments`);
 
     for (const wall of walls) {
-      const textureInfo = this.textureManager.getTextureInfo(wall.textureName);
-      const fakeContrast = getWallFakeContrast(wall.lineDx, wall.lineDy);
-      const material = this.textureManager.createWallMaterial(
-        wall.textureName,
-        wall.lightLevel,
-        wall.masked || Boolean(textureInfo?.masked),
-        fakeContrast
-      );
-
-      const mesh = new THREE.Mesh(wall.geometry, material);
-      mesh.frustumCulled = false; // We'll handle culling with BSP
-      this.applyWallUVs(
-        wall.geometry,
-        wall,
-        textureInfo ?? {
-          texture: material.map as THREE.Texture,
-          width: 64,
-          height: 64,
-          masked: false,
-        }
-      );
-      this.scene.add(mesh);
-      this.wallMeshes.push(mesh);
-      this.wallMeshInfo.push({
-        mesh,
-        lineIndex: wall.lineIndex,
-        sideDefIndex: wall.sideDefIndex,
-        lightLevel: wall.lightLevel,
-        textureWidth: textureInfo?.width ?? 64,
-        textureHeight: textureInfo?.height ?? 64,
-        baseTextureOffsetX: wall.textureOffsetX,
-        baseTextureOffsetY: wall.textureOffsetY,
-        bottomAligned: wall.bottomAligned,
-        worldWidth: wall.worldWidth,
-        worldHeight: wall.worldHeight,
-        lineDx: wall.lineDx,
-        lineDy: wall.lineDy,
-      });
+      this.addWallSegment(wall);
     }
 
     // Build sectors (floors and ceilings)
@@ -382,26 +345,24 @@ export class LevelRenderer {
    */
   updateSectorCeiling(sectorIndex: number, _oldHeight: number, newHeight: number): void {
     const meshes = this.sectorMeshes.get(sectorIndex);
-    if (!meshes) return;
+    if (meshes) {
+      for (const mesh of meshes) {
+        const geometry = mesh.geometry;
+        const positionAttribute = geometry.getAttribute('position');
+        const normalAttribute = geometry.getAttribute('normal');
 
-    for (const mesh of meshes) {
-      const geometry = mesh.geometry;
-      const positionAttribute = geometry.getAttribute('position');
-      const normalAttribute = geometry.getAttribute('normal');
+        if (!positionAttribute || !normalAttribute) continue;
 
-      if (!positionAttribute || !normalAttribute) continue;
-
-      // Ceiling faces down: normal (0, -1, 0)
-      if (normalAttribute.getY(0) < 0) {
-        for (let i = 0; i < positionAttribute.count; i++) {
-          positionAttribute.setY(i, newHeight);
+        if (normalAttribute.getY(0) < 0) {
+          for (let i = 0; i < positionAttribute.count; i++) {
+            positionAttribute.setY(i, newHeight);
+          }
+          positionAttribute.needsUpdate = true;
+          geometry.computeBoundingSphere();
         }
-        positionAttribute.needsUpdate = true;
-        geometry.computeBoundingSphere();
-        this.mapData.sectors[sectorIndex].ceilingheight = newHeight;
-        break;
       }
     }
+    this.rebuildWallsTouchingSector(sectorIndex);
   }
 
   /**
@@ -411,25 +372,106 @@ export class LevelRenderer {
    */
   updateSectorFloor(sectorIndex: number, _oldHeight: number, newHeight: number): void {
     const meshes = this.sectorMeshes.get(sectorIndex);
-    if (!meshes) return;
+    if (meshes) {
+      for (const mesh of meshes) {
+        const geometry = mesh.geometry;
+        const positionAttribute = geometry.getAttribute('position');
+        const normalAttribute = geometry.getAttribute('normal');
 
-    for (const mesh of meshes) {
-      const geometry = mesh.geometry;
-      const positionAttribute = geometry.getAttribute('position');
-      const normalAttribute = geometry.getAttribute('normal');
+        if (!positionAttribute || !normalAttribute) continue;
 
-      if (!positionAttribute || !normalAttribute) continue;
-
-      // Floor faces up: normal (0, 1, 0)
-      if (normalAttribute.getY(0) > 0) {
-        for (let i = 0; i < positionAttribute.count; i++) {
-          positionAttribute.setY(i, newHeight);
+        if (normalAttribute.getY(0) > 0) {
+          for (let i = 0; i < positionAttribute.count; i++) {
+            positionAttribute.setY(i, newHeight);
+          }
+          positionAttribute.needsUpdate = true;
+          geometry.computeBoundingSphere();
         }
-        positionAttribute.needsUpdate = true;
-        geometry.computeBoundingSphere();
-        this.mapData.sectors[sectorIndex].floorheight = newHeight;
-        break;
       }
+    }
+    this.rebuildWallsTouchingSector(sectorIndex);
+  }
+
+  private addWallSegment(wall: WallSegment): void {
+    const textureInfo = this.textureManager.getTextureInfo(wall.textureName);
+    const fakeContrast = getWallFakeContrast(wall.lineDx, wall.lineDy);
+    const material = this.textureManager.createWallMaterial(
+      wall.textureName,
+      wall.lightLevel,
+      wall.masked || Boolean(textureInfo?.masked),
+      fakeContrast
+    );
+
+    const mesh = new THREE.Mesh(wall.geometry, material);
+    mesh.frustumCulled = false;
+    this.applyWallUVs(
+      wall.geometry,
+      wall,
+      textureInfo ?? {
+        texture: material.map as THREE.Texture,
+        width: 64,
+        height: 64,
+        masked: false,
+      }
+    );
+    this.scene.add(mesh);
+    this.wallMeshes.push(mesh);
+    this.wallMeshInfo.push({
+      mesh,
+      lineIndex: wall.lineIndex,
+      sideDefIndex: wall.sideDefIndex,
+      lightLevel: wall.lightLevel,
+      textureWidth: textureInfo?.width ?? 64,
+      textureHeight: textureInfo?.height ?? 64,
+      baseTextureOffsetX: wall.textureOffsetX,
+      baseTextureOffsetY: wall.textureOffsetY,
+      bottomAligned: wall.bottomAligned,
+      worldWidth: wall.worldWidth,
+      worldHeight: wall.worldHeight,
+      lineDx: wall.lineDx,
+      lineDy: wall.lineDy,
+    });
+  }
+
+  /** Rebuild wall quads for every linedef that borders this sector (doors/lifts). */
+  private rebuildWallsTouchingSector(sectorIndex: number): void {
+    const lines = new Set<number>();
+    for (let i = 0; i < this.mapData.linedefs.length; i++) {
+      const line = this.mapData.linedefs[i];
+      const frontSec = this.mapData.sidedefs[line.sidenum[0]].sector;
+      const backSec =
+        line.sidenum[1] >= 0 ? this.mapData.sidedefs[line.sidenum[1]].sector : -1;
+      if (frontSec === sectorIndex || backSec === sectorIndex) {
+        lines.add(i);
+      }
+    }
+
+    for (const lineIdx of lines) {
+      this.rebuildWallsForLine(lineIdx);
+    }
+  }
+
+  private rebuildWallsForLine(lineIndex: number): void {
+    const keptMeshes: THREE.Mesh[] = [];
+    const keptInfo: WallMeshInfo[] = [];
+
+    for (let i = 0; i < this.wallMeshInfo.length; i++) {
+      if (this.wallMeshInfo[i].lineIndex === lineIndex) {
+        const mesh = this.wallMeshes[i];
+        this.scene.remove(mesh);
+        mesh.geometry.dispose();
+      } else {
+        keptMeshes.push(this.wallMeshes[i]);
+        keptInfo.push(this.wallMeshInfo[i]);
+      }
+    }
+
+    this.wallMeshes = keptMeshes;
+    this.wallMeshInfo = keptInfo;
+
+    const segments = WallBuilder.buildWallsForLine(this.mapData, lineIndex);
+    for (const wall of segments) {
+      this.addWallSegment(wall);
     }
   }
 

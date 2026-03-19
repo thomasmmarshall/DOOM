@@ -28,6 +28,10 @@ import { MusicPlayer, SoundManager } from './audio';
 const DOOM_DISPLAY_ASPECT = 4 / 3;
 const DOOM_INTERNAL_WIDTH = 320;
 const DOOM_VIEW_HEIGHT = 168;  // 3D view area; status bar 32px below
+const DOOM_STATUS_HEIGHT = 32;
+const DOOM_FRAMEBUFFER_HEIGHT = DOOM_VIEW_HEIGHT + DOOM_STATUS_HEIGHT; // 320×200 VGA surface
+/** How the 3D view maps to the screen when 320×200 is displayed at 4:3 (non-square pixels). */
+const DOOM_VIEW_DISPLAY_ASPECT = DOOM_DISPLAY_ASPECT * (DOOM_FRAMEBUFFER_HEIGHT / DOOM_VIEW_HEIGHT);
 const DOOM_HORIZONTAL_FOV = 73.74;
 
 function horizontalToVerticalFov(horizontalFov: number, aspect: number): number {
@@ -84,11 +88,10 @@ class DoomGame {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x000000);
 
-    // DOOM view is 320x168; status bar 320x32 below.
-    const viewAspect = DOOM_INTERNAL_WIDTH / DOOM_VIEW_HEIGHT;
+    // Internal buffer 320×168; on hardware the full 320×200 frame is shown at 4:3.
     this.camera = new THREE.PerspectiveCamera(
-      horizontalToVerticalFov(DOOM_HORIZONTAL_FOV, viewAspect),
-      viewAspect,
+      horizontalToVerticalFov(DOOM_HORIZONTAL_FOV, DOOM_VIEW_DISPLAY_ASPECT),
+      DOOM_VIEW_DISPLAY_ASPECT,
       1,
       10000
     );
@@ -173,7 +176,7 @@ class DoomGame {
 
   private onResize(): void {
     this.updateRendererSize();
-    this.camera.aspect = DOOM_INTERNAL_WIDTH / DOOM_VIEW_HEIGHT;
+    this.camera.aspect = DOOM_VIEW_DISPLAY_ASPECT;
     this.camera.updateProjectionMatrix();
   }
 
