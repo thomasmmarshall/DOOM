@@ -3,10 +3,12 @@ import {
   initTables,
   finesine,
   finecosine,
+  finetangent,
   FINEANGLES,
   ANGLETOFINESHIFT,
   FineCosine,
   FineSine,
+  FineTangent,
 } from './tables';
 import { FixedMul, FRACUNIT } from './fixed';
 
@@ -36,5 +38,18 @@ describe('Trig tables (linuxdoom finesine / finecosine)', () => {
     for (let idx = 0; idx < FINEANGLES; idx++) {
       expect(FineCosine(idx << ANGLETOFINESHIFT)).toBe(finecosine[idx]);
     }
+  });
+});
+
+describe('finetangent (linuxdoom tables.c)', () => {
+  it('is vanilla length and endpoints', () => {
+    expect(finetangent.length).toBe(FINEANGLES / 2);
+    expect(finetangent[0]).toBe(-170910304);
+    expect(finetangent[4095]).toBe(170910304);
+  });
+
+  it('FineTangent indexes like vanilla (BAM >> 19)', () => {
+    expect(FineTangent(0)).toBe(finetangent[0]);
+    expect(FineTangent(123 << ANGLETOFINESHIFT)).toBe(finetangent[123]);
   });
 });

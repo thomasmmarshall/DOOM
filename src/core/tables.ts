@@ -6,6 +6,7 @@
  */
 
 import { Fixed, FloatToFixed } from './fixed';
+import { FINETANGENT_LUT } from './finetangentLUT';
 
 // Constants from tables.h
 export const FINEANGLES = 8192;
@@ -27,8 +28,8 @@ export const finesine: Fixed[] = new Array((5 * FINEANGLES) / 4);
 /** Same indices as linuxdoom `finecosine` (alias into finesine at +FINEANGLES/4). Filled in initTables(). */
 export const finecosine: Fixed[] = new Array(FINEANGLES);
 
-// Tangent lookup table (4096 entries)
-export const finetangent: Fixed[] = new Array(FINEANGLES / 2);
+/** linuxdoom-1.10 `finetangent[4096]` (see finetangentLUT.ts). */
+export const finetangent: Fixed[] = [...FINETANGENT_LUT];
 
 /**
  * Initialize trigonometry tables
@@ -41,12 +42,6 @@ export function initTables(): void {
   for (let i = 0; i < (5 * FINEANGLES) / 4; i++) {
     const angle = (i * 2 * PI) / FINEANGLES;
     finesine[i] = FloatToFixed(Math.sin(angle));
-  }
-
-  // Generate tangent table
-  for (let i = 0; i < FINEANGLES / 2; i++) {
-    const angle = (i * 2 * PI) / FINEANGLES;
-    finetangent[i] = FloatToFixed(Math.tan(angle));
   }
 
   // Match r_main.c: finecosine = &finesine[FINEANGLES/4] (must not slice before finesine is populated)
