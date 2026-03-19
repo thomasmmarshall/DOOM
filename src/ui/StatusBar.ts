@@ -12,12 +12,15 @@ const ST_NUMPAINFACES = 5;
 
 /**
  * Player stats for HUD display
+ * Matches original DOOM st_stuff.c layout: main ammo, health, arms (weapon grid), armor, 4 ammo types.
  */
 export interface PlayerStats {
   health: number;
   armor: number;
   ammo: number;
   maxAmmo: number;
+  /** Per-type ammo for right-side display: bullets, shells, rockets, cells (indices 0-3) */
+  ammoCounts: [number, number, number, number];
   keys: {
     blueCard: boolean;
     yellowCard: boolean;
@@ -26,9 +29,9 @@ export interface PlayerStats {
     yellowSkull: boolean;
     redSkull: boolean;
   };
-  weapons: boolean[]; // Index corresponds to weapon number
+  weapons: boolean[]; // Index 0=fist, 1=pistol, ... 7=BFG; arms show 2-7 (keys 1-6 in widget)
   currentWeapon: number;
-  face?: number; // Deprecated: computed from health if not provided
+  face?: number;
   message?: string;
 }
 
@@ -41,7 +44,23 @@ export class StatusBar {
   private statusBarPatch?: HTMLCanvasElement;
   private facePatches: Map<number, HTMLCanvasElement> = new Map(); // pain level 0-4 + dead
   private keyPatches: HTMLCanvasElement[] = []; // STKEYS0-5
+  private armsBgPatch: HTMLCanvasElement | null = null; // STARMS single-player arms background
   private initialized: boolean = false;
+
+  // Original st_stuff.c coordinates (Y relative to bar top 0)
+  private static readonly ST_AMMOX = 44;
+  private static readonly ST_HEALTHX = 90;
+  private static readonly ST_ARMORX = 221;
+  private static readonly ST_ARMSBGX = 104;
+  private static readonly ST_ARMSX = 111;
+  private static readonly ST_ARMSY = 4;
+  private static readonly ST_ARMSXSPACE = 12;
+  private static readonly ST_ARMSYSPACE = 10;
+  private static readonly ST_AMMO0X = 288;
+  private static readonly ST_AMMO0Y = 5;
+  private static readonly ST_AMMO1Y = 11;
+  private static readonly ST_AMMO2Y = 23;
+  private static readonly ST_AMMO3Y = 17;
 
   constructor(wad: WADReader, palette: Uint8ClampedArray, parent?: HTMLElement) {
     this.wad = wad;
@@ -157,6 +176,24 @@ export class StatusBar {
       }
     }
 
+    // Arms background (ARMS area in single-player; in deathmatch this is FRAG)
+    const armsBgData = this.wad.readLump('STARMS');
+    if (armsBgData) {
+      try {
+        const decoded = PatchDecoder.decodePatch(armsBgData, this.palette);
+        const canvas = document.createElement('canvas');
+        canvas.width = decoded.width;
+        canvas.height = decoded.height;
+        const ctx = canvas.getContext('2d')!;
+        const imageData = ctx.createImageData(decoded.width, decoded.height);
+        imageData.data.set(decoded.pixels);
+        ctx.putImageData(imageData, 0, 0);
+        this.armsBgPatch = canvas;
+      } catch (error) {
+        console.warn('Failed to load STARMS:', error);
+      }
+    }
+
     this.initialized = true;
     console.log('StatusBar initialized');
   }
@@ -212,10 +249,25 @@ export class StatusBar {
       this.ctx.fillRect(0, 0, 320, 32);
     }
 
-    // Original: ST_AMMOY=ST_HEALTHY=ST_ARMORY=171 -> bar-relative Y = 3 (32px bar starts at screen 168)
-    this.drawNumberRightAligned(Math.max(0, stats.ammo), 43, 3, 3);
-    this.drawNumberRightAligned(Math.max(0, stats.health), 95, 3, 3);
-    this.drawNumberRightAligned(Math.max(0, stats.armor), 221, 3, 3);
+    // Ready-weapon ammo (left), health, armor - original st_stuff positions
+    this.drawNumberRightAligned(Math.max(0, stats.ammo), StatusBar.ST_AMMOX + 24, 3, 3);
+    this.drawNumberRightAligned(Math.max(0, stats.health), StatusBar.ST_HEALTHX + 24, 3, 3);
+    this.drawNumberRightAligned(Math.max(0, stats.armor), StatusBar.ST_ARMORX + 24, 3, 3);
+
+    // Arms background (ARMS area; in deathmatch DOOM draws FRAG here instead)
+    if (this.armsBgPatch) {
+      this.ctx.drawImage(this.armsBgPatch, StatusBar.ST_ARMSBGX, 0);
+    }
+
+    // Weapon slots 2-7 (keys 2-7): draw digit when weapon owned, 6 positions in 2 rows
+    for (let i = 0; i < 6; i++) {
+      if (stats.weapons[i + 1]) {
+        const digit = i + 2; // key 2 through 7
+        const x = StatusBar.ST_ARMSX + (i % 3) * StatusBar.ST_ARMSXSPACE;
+        const y = StatusBar.ST_ARMSY + Math.floor(i / 3) * StatusBar.ST_ARMSYSPACE;
+        this.drawNumber(digit, x, y, 1);
+      }
+    }
 
     // Face: ST_FACESX=143, ST_FACESY=168 -> bar (143, 0)
     const health = Math.min(100, Math.max(0, stats.health));
@@ -239,6 +291,12 @@ export class StatusBar {
         this.ctx.drawImage(this.keyPatches[idx], keyX, keyY[i]);
       }
     }
+
+    // Four ammo types (bullets, shells, rockets, cells) - right side
+    this.drawNumberRightAligned(Math.max(0, stats.ammoCounts[0]), StatusBar.ST_AMMO0X + 24, StatusBar.ST_AMMO0Y, 3);
+    this.drawNumberRightAligned(Math.max(0, stats.ammoCounts[1]), StatusBar.ST_AMMO0X + 24, StatusBar.ST_AMMO1Y, 3);
+    this.drawNumberRightAligned(Math.max(0, stats.ammoCounts[2]), StatusBar.ST_AMMO0X + 24, StatusBar.ST_AMMO2Y, 3);
+    this.drawNumberRightAligned(Math.max(0, stats.ammoCounts[3]), StatusBar.ST_AMMO0X + 24, StatusBar.ST_AMMO3Y, 3);
 
     if (stats.message) {
       this.ctx.fillStyle = '#ffd54a';

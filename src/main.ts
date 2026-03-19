@@ -676,15 +676,22 @@ class DoomGame {
 
     // Update HUD
     if (this.statusBar && this.playerMobj.player) {
+      const p = this.playerMobj.player;
       const stats: PlayerStats = {
         health: this.playerMobj.health,
-        armor: this.playerMobj.player.armor,
+        armor: p.armor,
         ammo: this.getCurrentAmmo(),
         maxAmmo: this.getCurrentMaxAmmo(),
-        keys: this.playerMobj.player.keys,
-        weapons: this.playerMobj.player.weapons,
-        currentWeapon: this.playerMobj.player.weapon?.currentWeapon || 0,
-        message: this.playerMobj.player.message,
+        ammoCounts: [
+          p.ammo.bullets,
+          p.ammo.shells,
+          p.ammo.rockets,
+          p.ammo.cells,
+        ],
+        keys: p.keys,
+        weapons: p.weapons,
+        currentWeapon: p.weapon?.currentWeapon ?? 0,
+        message: p.message,
       };
       this.statusBar.render(stats);
     }
