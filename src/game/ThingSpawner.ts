@@ -35,9 +35,11 @@ function getSkillBitMask(skill: number): number {
 
 export class ThingSpawner {
   private spawnedThings: SpawnedThing[];
+  private readonly loggedUnknownTypes: Set<number>;
 
   constructor() {
     this.spawnedThings = [];
+    this.loggedUnknownTypes = new Set();
   }
 
   /**
@@ -84,7 +86,10 @@ export class ThingSpawner {
   private spawnThing(thing: MapThing, mapData: MapData): SpawnedThing | null {
     const info = getThingInfo(thing.type);
     if (!info) {
-      // Unknown thing type - skip silently (many thing types not yet implemented)
+      if (!this.loggedUnknownTypes.has(thing.type)) {
+        this.loggedUnknownTypes.add(thing.type);
+        console.warn(`Unknown map thing type ${thing.type} at (${thing.x},${thing.y}) — not in mobjinfo / THING_INFO`);
+      }
       return null;
     }
 
