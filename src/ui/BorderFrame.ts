@@ -7,7 +7,8 @@
 import type { WADReader } from '../wad';
 import { PatchDecoder } from '../graphics';
 
-const BORDER_SIZE = 8;
+const BORDER_BASE_SIZE = 8;
+const DOOM_VIEW_WIDTH = 320;
 
 export class BorderFrame {
   private canvas: HTMLCanvasElement;
@@ -18,17 +19,19 @@ export class BorderFrame {
   private initialized = false;
   private viewWidth = 320;
   private viewHeight = 168;
+  /** Scaled border thickness so it stays ~2.5% of view width at any resolution. */
+  private borderSizePx = BORDER_BASE_SIZE;
 
   constructor(wad: WADReader, palette: Uint8ClampedArray) {
     this.wad = wad;
     this.palette = palette;
 
     this.canvas = document.createElement('canvas');
-    this.canvas.width = this.viewWidth + BORDER_SIZE * 2;
-    this.canvas.height = this.viewHeight + BORDER_SIZE * 2;
+    this.canvas.width = this.viewWidth + this.borderSizePx * 2;
+    this.canvas.height = this.viewHeight + this.borderSizePx * 2;
     this.canvas.style.position = 'absolute';
-    this.canvas.style.top = '-8px';
-    this.canvas.style.left = '-8px';
+    this.canvas.style.top = `-${this.borderSizePx}px`;
+    this.canvas.style.left = `-${this.borderSizePx}px`;
     this.canvas.style.imageRendering = 'pixelated';
     this.canvas.style.imageRendering = 'crisp-edges';
     this.canvas.style.pointerEvents = 'none';
@@ -45,8 +48,11 @@ export class BorderFrame {
     if (viewWidth <= 0 || viewHeight <= 0) return;
     this.viewWidth = viewWidth;
     this.viewHeight = viewHeight;
-    this.canvas.width = viewWidth + BORDER_SIZE * 2;
-    this.canvas.height = viewHeight + BORDER_SIZE * 2;
+    this.borderSizePx = Math.max(BORDER_BASE_SIZE, Math.round(BORDER_BASE_SIZE * (viewWidth / DOOM_VIEW_WIDTH)));
+    this.canvas.width = viewWidth + this.borderSizePx * 2;
+    this.canvas.height = viewHeight + this.borderSizePx * 2;
+    this.canvas.style.top = `-${this.borderSizePx}px`;
+    this.canvas.style.left = `-${this.borderSizePx}px`;
     this.render();
   }
 
@@ -92,17 +98,20 @@ export class BorderFrame {
 
     const w = this.viewWidth;
     const h = this.viewHeight;
-    for (let x = 0; x < w; x += BORDER_SIZE) {
-      this.ctx.drawImage(t, BORDER_SIZE + x, 0);
-      this.ctx.drawImage(b, BORDER_SIZE + x, BORDER_SIZE + h);
+    const sz = this.borderSizePx;
+    // WAD patches are 8x8; scale to borderSizePx so border stays visibly thick.
+    const patchSize = 8;
+    for (let x = 0; x < w; x += sz) {
+      this.ctx.drawImage(t, 0, 0, patchSize, patchSize, sz + x, 0, sz, sz);
+      this.ctx.drawImage(b, 0, 0, patchSize, patchSize, sz + x, sz + h, sz, sz);
     }
-    for (let y = 0; y < h; y += BORDER_SIZE) {
-      this.ctx.drawImage(l, 0, BORDER_SIZE + y);
-      this.ctx.drawImage(r, BORDER_SIZE + w, BORDER_SIZE + y);
+    for (let y = 0; y < h; y += sz) {
+      this.ctx.drawImage(l, 0, 0, patchSize, patchSize, 0, sz + y, sz, sz);
+      this.ctx.drawImage(r, 0, 0, patchSize, patchSize, sz + w, sz + y, sz, sz);
     }
-    this.ctx.drawImage(tl, 0, 0);
-    this.ctx.drawImage(tr, BORDER_SIZE + w, 0);
-    this.ctx.drawImage(bl, 0, BORDER_SIZE + h);
-    this.ctx.drawImage(br, BORDER_SIZE + w, BORDER_SIZE + h);
+    this.ctx.drawImage(tl, 0, 0, patchSize, patchSize, 0, 0, sz, sz);
+    this.ctx.drawImage(tr, 0, 0, patchSize, patchSize, sz + w, 0, sz, sz);
+    this.ctx.drawImage(bl, 0, 0, patchSize, patchSize, 0, sz + h, sz, sz);
+    this.ctx.drawImage(br, 0, 0, patchSize, patchSize, sz + w, sz + h, sz, sz);
   }
 }

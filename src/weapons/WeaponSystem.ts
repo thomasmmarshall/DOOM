@@ -8,8 +8,8 @@ import type { Mobj } from '../game/mobj';
 import { MobjFlags } from '../game/mobj';
 import { FixedToFloat } from '../core/fixed';
 import type { MapData } from '../level/types';
+import { ML_BLOCKING, ML_TWOSIDED } from '../level/types';
 import { findSectorAtPoint } from '../level';
-import { checkLineOfSight } from '../physics/LineOfSight';
 import { pRandom } from '../core';
 import { isSkyFlat } from '../renderer/doomLighting';
 
@@ -226,15 +226,73 @@ export function consumeWeaponAmmo(player: Mobj, weaponType: WeaponType): void {
   );
 }
 
+/** Distance along ray to first wall hit, or maxRange if none. */
+function getRayToWallDistance(
+  startX: number,
+  startY: number,
+  dirX: number,
+  dirY: number,
+  maxRange: number,
+  mapData: MapData
+): number {
+  let minT = maxRange;
+  for (const line of mapData.linedefs) {
+    const v1 = mapData.vertexes[line.v1];
+    const v2 = mapData.vertexes[line.v2];
+    const segDx = v2.x - v1.x;
+    const segDy = v2.y - v1.y;
+    const denom = dirX * segDy - dirY * segDx;
+    if (Math.abs(denom) < 1e-6) continue;
+    const t = ((v1.x - startX) * segDy - (v1.y - startY) * segDx) / denom;
+    const u = ((startX - v1.x) * dirY - (startY - v1.y) * dirX) / -denom;
+    if (t < 0 || u < 0 || u > 1) continue;
+    if (t >= minT) continue;
+    const twoSided = (line.flags & ML_TWOSIDED) !== 0;
+    const blocking = (line.flags & ML_BLOCKING) !== 0;
+    if (!twoSided || blocking) {
+      minT = t;
+      continue;
+    }
+    if (line.sidenum[0] === -1) continue;
+    const frontSector = mapData.sectors[mapData.sidedefs[line.sidenum[0]].sector];
+    const frontFloor = frontSector.floorheight;
+    const frontCeiling = frontSector.ceilingheight;
+    if (line.sidenum[1] === -1) {
+      minT = t;
+      continue;
+    }
+    const backSector = mapData.sectors[mapData.sidedefs[line.sidenum[1]].sector];
+    const openBottom = Math.max(frontFloor, backSector.floorheight);
+    const openTop = Math.min(frontCeiling, backSector.ceilingheight);
+    if (openTop <= openBottom) minT = t;
+  }
+  return minT;
+}
+
+/** First positive distance along ray (start + t*dir) to circle at (cx,cy) radius R, or Infinity. */
+function rayCircleIntersection(
+  startX: number,
+  startY: number,
+  dirX: number,
+  dirY: number,
+  cx: number,
+  cy: number,
+  R: number
+): number {
+  const dx = startX - cx;
+  const dy = startY - cy;
+  const b = 2 * (dirX * dx + dirY * dy);
+  const c = dx * dx + dy * dy - R * R;
+  const disc = b * b - 4 * c;
+  if (disc < 0) return Infinity;
+  const t = (-b - Math.sqrt(disc)) / 2;
+  return t > 0 ? t : Infinity;
+}
+
 /**
  * Perform hitscan attack
- * Instant-hit weapon like pistol, shotgun, chaingun
- * @param source - Attacker (usually player)
- * @param angle - Angle to fire in (radians)
- * @param damage - Base damage
- * @param spread - Angular spread in radians
- * @param allMobjs - List of all map objects to check for hits
- * @returns Hit result or null if nothing hit
+ * Instant-hit weapon like pistol, shotgun, chaingun.
+ * Uses ray-circle hit test and ray-vs-wall trace so walls block shots.
  */
 export function performHitscan(
   source: Mobj,
@@ -244,64 +302,39 @@ export function performHitscan(
   allMobjs: Mobj[] = [],
   mapData?: MapData
 ): HitscanResult | null {
-  // Calculate direction with spread
   const spreadOffset = spread === 0 ? 0 : ((pRandom() - pRandom()) / 255) * spread;
   const finalAngle = angle + spreadOffset;
 
-  // Cast ray from source
-  const range = 2048; // Maximum range
+  const range = 2048;
   const startX = FixedToFloat(source.x);
   const startY = FixedToFloat(source.y);
-  const startZ = FixedToFloat(source.z) + 32; // Eye height
+  const startZ = FixedToFloat(source.z) + 32;
 
   const dirX = Math.cos(finalAngle);
   const dirY = Math.sin(finalAngle);
 
-  // Find closest shootable target along the ray
-  let closestDist = range;
+  const wallHitDist = mapData ? getRayToWallDistance(startX, startY, dirX, dirY, range, mapData) : range;
+
+  let closestDist = wallHitDist;
   let closestTarget: Mobj | undefined;
 
   for (const target of allMobjs) {
-    // Can't shoot self
     if (target === source) continue;
-
-    // Skip non-shootable
     if (!(target.flags & MobjFlags.SHOOTABLE)) continue;
-
-    // Skip dead things
     if (target.health <= 0) continue;
 
-    // Get target position
     const targetX = FixedToFloat(target.x);
     const targetY = FixedToFloat(target.y);
     const targetZ = FixedToFloat(target.z);
     const targetHeight = FixedToFloat(target.height);
-
-    // Calculate distance to target
-    const dx = targetX - startX;
-    const dy = targetY - startY;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-
-    if (dist > closestDist) continue;
-
-    // Calculate angle to target
-    const targetAngle = Math.atan2(dy, dx);
-    const angleDiff = Math.abs(finalAngle - targetAngle);
-
-    // Check if target is in our firing cone (very narrow for hitscan)
     const targetRadius = FixedToFloat(target.radius);
-    const angularSize = Math.atan2(targetRadius, dist);
 
-    if (angleDiff < angularSize * 2) {
-      // Check vertical alignment
-      if (startZ >= targetZ && startZ <= targetZ + targetHeight) {
-        if (mapData && !checkLineOfSight(source, target, mapData)) {
-          continue;
-        }
-        closestDist = dist;
-        closestTarget = target;
-      }
-    }
+    const t = rayCircleIntersection(startX, startY, dirX, dirY, targetX, targetY, targetRadius);
+    if (t <= 0 || t >= closestDist) continue;
+    if (startZ < targetZ || startZ > targetZ + targetHeight) continue;
+
+    closestDist = t;
+    closestTarget = target;
   }
 
   if (closestTarget) {
@@ -311,22 +344,19 @@ export function performHitscan(
       distance: closestDist,
       damage,
       hitPoint: {
-        x: FixedToFloat(closestTarget.x),
-        y: FixedToFloat(closestTarget.y),
+        x: startX + dirX * closestDist,
+        y: startY + dirY * closestDist,
         z: FixedToFloat(closestTarget.z),
       },
     };
   }
 
-  // No hit - return ray endpoint
   return {
     hit: false,
     distance: range,
     damage,
     hitPoint: { x: startX + dirX * range, y: startY + dirY * range, z: startZ },
-    hitSky: mapData
-      ? isSkyCeilingPoint(startX + dirX * range, startY + dirY * range, mapData)
-      : false,
+    hitSky: mapData ? isSkyCeilingPoint(startX + dirX * range, startY + dirY * range, mapData) : false,
   };
 }
 

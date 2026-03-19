@@ -65,6 +65,8 @@ class DoomGame {
   private gameContainer?: HTMLElement;
   private viewContainer?: HTMLElement;
   private borderFrame?: BorderFrame;
+  /** Tick until which to show muzzle flash (game-tick driven, not frame). */
+  private weaponFlashUntilTick: number = 0;
 
   constructor() {
     // Initialize trigonometry tables
@@ -710,6 +712,7 @@ class DoomGame {
     const success = fireWeapon(weapon, this.playerMobj);
 
     if (success) {
+      this.weaponFlashUntilTick = this.tickCount + 4; // ~4 ticks of muzzle flash at 35 Hz
       this.noiseOrigin = {
         x: FixedToFloat(this.playerMobj.x),
         y: FixedToFloat(this.playerMobj.y),
@@ -944,7 +947,8 @@ class DoomGame {
     // Update weapon every frame (not just in game tick)
     if (this.weaponRenderer && this.playerMobj?.player?.weapon && !this.playerDied) {
       const bob = FixedToFloat(this.playerMobj.player.bob);
-      this.weaponRenderer.update(this.playerMobj.player.weapon, bob);
+      const showFlash = this.weaponFlashUntilTick > this.tickCount;
+      this.weaponRenderer.update(this.playerMobj.player.weapon, bob, showFlash);
     }
 
     // Render scene

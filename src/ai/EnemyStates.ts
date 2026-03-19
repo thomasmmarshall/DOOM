@@ -188,7 +188,8 @@ export function updateMonster(
 
   if (shouldAttack) {
     ai.state = AIState.ATTACK;
-    ai.attackCooldown = enemy.type === 9 ? 50 : 40;
+    // Cooldown so enemy doesn't shoot again immediately (DOOM: attack state has duration)
+    ai.attackCooldown = enemy.type === 9 ? 56 : 48;
     attackPlayer(enemy, player);
   } else {
     ai.state = AIState.CHASE;

@@ -70,7 +70,6 @@ export class WeaponRenderer {
   private currentFrame: number = 0;
   private animationTimer: number = 0;
   private bobOffset: number = 0;
-  private flashTicks: number = 0;
 
   constructor(wad: WADReader, palette: Uint8ClampedArray) {
     this.wad = wad;
@@ -142,9 +141,10 @@ export class WeaponRenderer {
   }
 
   /**
-   * Update weapon sprite based on weapon state
+   * Update weapon sprite based on weapon state.
+   * showFlash: from game tick (true for ~4 ticks after firing) so muzzle flash is visible.
    */
-  update(weapon: PlayerWeapon, playerBob: number = 0): void {
+  update(weapon: PlayerWeapon, playerBob: number = 0, showFlash: boolean = false): void {
     const frames = WEAPON_FRAMES.get(weapon.currentWeapon);
     if (!frames || frames.length === 0) {
       console.error(`No frames for weapon ${WeaponType[weapon.currentWeapon]} (type: ${weapon.currentWeapon})`);
@@ -158,13 +158,11 @@ export class WeaponRenderer {
     switch (weapon.state) {
       case WeaponState.READY:
         frameIndex = 0;
-        this.flashTicks = 0;
         break;
 
       case WeaponState.FIRING:
         const firingFrames = frames.length - 1;
         frameIndex = Math.min(this.currentFrame % firingFrames + 1, frames.length - 1);
-        if (this.flashTicks === 0) this.flashTicks = 4;
         break;
 
       case WeaponState.RAISING:
@@ -172,8 +170,6 @@ export class WeaponRenderer {
         frameIndex = 0;
         break;
     }
-
-    if (this.flashTicks > 0) this.flashTicks--;
 
     // Update animation timer
     this.animationTimer++;
@@ -222,12 +218,13 @@ export class WeaponRenderer {
     const bobX = Math.sin(bobPhase) * Math.min(6, this.bobOffset * 0.08);
     const bobY = Math.abs(Math.cos(bobPhase)) * Math.min(8, this.bobOffset * 0.12);
     const xPos = 160 + bobX;
-    const yPos = 168 - (sprite.height * 0.5) + bobY;
+    // Ortho: top=168, bottom=0. Put gun at bottom of view (y=0 = bottom).
+    const yPos = sprite.height * 0.5 - bobY;
 
     this.weaponMesh.position.set(xPos, yPos, 0);
 
-    const showFlash = this.flashTicks > 0 && WEAPON_FLASH.has(weapon.currentWeapon);
-    if (showFlash) {
+    const flashVisible = showFlash && WEAPON_FLASH.has(weapon.currentWeapon);
+    if (flashVisible) {
       const flashInfo = WEAPON_FLASH.get(weapon.currentWeapon)!;
       const flashSprite = this.loadWeaponSprite(flashInfo.spriteName, flashInfo.frame);
       if (flashSprite) {

@@ -212,17 +212,17 @@ export class StatusBar {
       this.ctx.fillRect(0, 0, 320, 32);
     }
 
-    // Original positions: ST_AMMOX=44, ST_HEALTHX=90, ST_ARMORX=221, ST_AMMOY/HEALTHY/ARMORY=171
-    this.drawNumberRightAligned(Math.max(0, stats.ammo), 43, 2, 3);
-    this.drawNumberRightAligned(Math.max(0, stats.health), 95, 2, 3);
-    this.drawNumberRightAligned(Math.max(0, stats.armor), 221, 2, 3);
+    // Original: ST_AMMOY=ST_HEALTHY=ST_ARMORY=171 -> bar-relative Y = 3 (32px bar starts at screen 168)
+    this.drawNumberRightAligned(Math.max(0, stats.ammo), 43, 3, 3);
+    this.drawNumberRightAligned(Math.max(0, stats.health), 95, 3, 3);
+    this.drawNumberRightAligned(Math.max(0, stats.armor), 221, 3, 3);
 
-    // Face: ST_calcPainOffset - 5 pain levels by health (st_stuff.c)
+    // Face: ST_FACESX=143, ST_FACESY=168 -> bar (143, 0)
     const health = Math.min(100, Math.max(0, stats.health));
     const faceIndex = health <= 0 ? 5 : Math.min(4, Math.floor(((100 - health) * ST_NUMPAINFACES) / 101));
     const face = this.facePatches.get(faceIndex) ?? this.facePatches.get(0);
     if (face) {
-      this.ctx.drawImage(face, 143, 1);
+      this.ctx.drawImage(face, 143, 0);
     }
 
     // Keys: ST_KEY0X=239, ST_KEY1X=239, ST_KEY2X=239; ST_KEY0Y=171, ST_KEY1Y=181, ST_KEY2Y=191 (relative to 32px bar: 3, 13, 23)
