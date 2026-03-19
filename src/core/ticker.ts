@@ -4,8 +4,11 @@
  * Based on linuxdoom-1.10/d_main.c (D_DoomLoop)
  */
 
-export const TICRATE = 35; // 35 Hz tick rate
-const TICK_DURATION = 1000 / TICRATE; // ~28.57 ms per tick
+export const TICRATE = 35; // 35 Hz nominal (original DOOM)
+/** Scale applied to tick rate: 1 = original speed, <1 = slower. Use 0.7 to match original feel if game feels too fast. */
+const GAME_SPEED = 0.7;
+const TICK_DURATION = 1000 / (TICRATE * GAME_SPEED); // longer = fewer ticks per second
+const MAX_DELTA_MS = 2 * (1000 / TICRATE); // cap so we never run more than 2 ticks per frame when catching up
 
 export type TickFunction = (tick: number) => void;
 
@@ -48,8 +51,11 @@ export class GameTicker {
     if (!this.running) return;
 
     const currentTime = performance.now();
-    const deltaTime = currentTime - this.lastTime;
+    let deltaTime = currentTime - this.lastTime;
     this.lastTime = currentTime;
+
+    // Cap delta to avoid burst of ticks when tab was in background (keeps feel consistent)
+    if (deltaTime > MAX_DELTA_MS) deltaTime = MAX_DELTA_MS;
 
     // Accumulate time
     this.accumulator += deltaTime;

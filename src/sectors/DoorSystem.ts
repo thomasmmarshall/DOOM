@@ -6,7 +6,7 @@
 
 import type { MapData } from '../level/types';
 import type { Fixed } from '../core';
-import { IntToFixed, FixedToFloat } from '../core/fixed';
+import { IntToFixed, FixedToFloat, FloatToFixed } from '../core/fixed';
 import { findLowestNeighborCeiling } from './sectorHeights';
 
 /**
@@ -122,7 +122,7 @@ export class DoorManager {
    */
   private updateDoor(door: DoorThinker): void {
     const sector = this.mapData.sectors[door.sectorIndex];
-    const currentHeight = IntToFixed(sector.ceilingheight);
+    const currentHeight = FloatToFixed(sector.ceilingheight);
 
     switch (door.state) {
       case DoorState.OPENING:

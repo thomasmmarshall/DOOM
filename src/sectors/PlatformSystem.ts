@@ -6,7 +6,7 @@
 
 import type { MapData } from '../level/types';
 import type { Fixed } from '../core';
-import { IntToFixed, FixedToFloat } from '../core/fixed';
+import { IntToFixed, FixedToFloat, FloatToFixed } from '../core/fixed';
 import { findLowestNeighborFloor, findNextHighestNeighborFloor } from './sectorHeights';
 
 /**
@@ -140,11 +140,12 @@ export class PlatformManager {
    */
   private updatePlatform(platform: PlatformThinker): void {
     const sector = this.mapData.sectors[platform.sectorIndex];
-    const currentHeight = IntToFixed(sector.floorheight);
+    const currentHeight = FloatToFixed(sector.floorheight);
+    const speedFixed = IntToFixed(platform.speed);
 
     switch (platform.state) {
       case PlatformState.UP:
-        const newUpHeight = currentHeight + platform.speed;
+        const newUpHeight = currentHeight + speedFixed;
         const oldUpHeight = sector.floorheight;
 
         if (newUpHeight >= platform.highHeight) {
@@ -171,7 +172,7 @@ export class PlatformManager {
         break;
 
       case PlatformState.DOWN:
-        const newDownHeight = currentHeight - platform.speed;
+        const newDownHeight = currentHeight - speedFixed;
         const oldDownHeight = sector.floorheight;
 
         if (newDownHeight <= platform.lowHeight) {
