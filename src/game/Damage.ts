@@ -91,6 +91,18 @@ export function damageActor(
   return { damageDealt: actualDamage, killed: false, overkill: 0 };
 }
 
+const DEATH_FRAMES: Record<number, string> = {
+  2035: 'B',
+  3001: 'M',
+  3002: 'N',
+  3004: 'L',
+  9: 'L',
+};
+
+function getDeathFrame(type: number): string {
+  return DEATH_FRAMES[type] ?? 'L';
+}
+
 /**
  * Kill an actor
  */
@@ -104,17 +116,12 @@ function killActor(target: Mobj, attacker?: Mobj): void {
   // Remove shootable flag
   target.flags &= ~MobjFlags.SHOOTABLE;
 
-  // Add corpse flag
   target.flags |= MobjFlags.CORPSE;
-  target.frame = target.type === 2035 ? 'B' : 'H';
+  target.frame = getDeathFrame(target.type);
 
-  // Stop any movement
   target.momx = 0;
   target.momy = 0;
   target.momz = 0;
-
-  // TODO: Enter death state animation
-  // TODO: Play death sound
   // For now just log
   console.log(`${target.type} died!`);
 

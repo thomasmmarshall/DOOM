@@ -39,53 +39,36 @@ export class StatusBar {
   private facePatches: HTMLCanvasElement[] = [];
   private initialized: boolean = false;
 
-  constructor(wad: WADReader, palette: Uint8ClampedArray) {
+  constructor(wad: WADReader, palette: Uint8ClampedArray, parent?: HTMLElement) {
     this.wad = wad;
     this.palette = palette;
 
-    // Create overlay canvas for HUD
     this.canvas = document.createElement('canvas');
     this.canvas.width = 320;
-    this.canvas.height = 32; // Status bar height
-    this.canvas.style.position = 'absolute';
-    this.canvas.style.bottom = '0';
-    this.canvas.style.left = '50%';
-    this.canvas.style.transform = 'translateX(-50%)';
+    this.canvas.height = 32;
+    this.canvas.style.flex = '0 0 auto';
+    this.canvas.style.width = '100%';
+    this.canvas.style.height = '16%';
     this.canvas.style.imageRendering = 'pixelated';
     this.canvas.style.imageRendering = 'crisp-edges';
     this.canvas.style.pointerEvents = 'none';
     this.canvas.style.zIndex = '1000';
 
-    // Scale canvas to window size while maintaining pixel art
     this.updateCanvasScale();
     window.addEventListener('resize', () => this.updateCanvasScale());
 
     this.ctx = this.canvas.getContext('2d')!;
 
-    // Add to document
-    document.body.appendChild(this.canvas);
+    (parent ?? document.body).appendChild(this.canvas);
   }
 
   /**
    * Update canvas scale to match window size
    */
   private updateCanvasScale(): void {
-    // Calculate scale based on 4:3 aspect ratio window
-    const windowAspect = window.innerWidth / window.innerHeight;
-    const targetAspect = 4 / 3;
-
-    let gameWidth: number;
-    if (windowAspect > targetAspect) {
-      // Pillarboxed
-      gameWidth = window.innerHeight * targetAspect;
-    } else {
-      // Letterboxed
-      gameWidth = window.innerWidth;
-    }
-
-    const scale = gameWidth / 320;
-    this.canvas.style.width = `${320 * scale}px`;
-    this.canvas.style.height = `${32 * scale}px`;
+    // Status bar size is controlled by flex parent; keep pixel ratio
+    this.canvas.style.width = '100%';
+    this.canvas.style.height = '16%';
   }
 
   /**

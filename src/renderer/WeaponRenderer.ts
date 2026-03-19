@@ -53,16 +53,24 @@ const WEAPON_FRAMES: Map<WeaponType, WeaponFrame[]> = new Map([
   ]],
 ]);
 
+const WEAPON_FLASH: Map<WeaponType, { spriteName: string; frame: string }> = new Map([
+  [WeaponType.PISTOL, { spriteName: 'PISF', frame: 'A' }],
+  [WeaponType.SHOTGUN, { spriteName: 'SHTF', frame: 'A' }],
+  [WeaponType.CHAINGUN, { spriteName: 'CHGF', frame: 'A' }],
+]);
+
 export class WeaponRenderer {
   private scene: THREE.Scene;
   private camera: THREE.OrthographicCamera;
   private wad: WADReader;
   private palette: Uint8ClampedArray;
   private weaponMesh?: THREE.Mesh;
+  private flashMesh?: THREE.Mesh;
   private spriteCache: Map<string, CachedWeaponSprite>;
   private currentFrame: number = 0;
   private animationTimer: number = 0;
   private bobOffset: number = 0;
+  private flashTicks: number = 0;
 
   constructor(wad: WADReader, palette: Uint8ClampedArray) {
     this.wad = wad;
@@ -72,16 +80,9 @@ export class WeaponRenderer {
     // Create orthographic scene for weapon overlay
     this.scene = new THREE.Scene();
 
-    // Camera positioned to see weapon sprite
-    // Use screen coordinates matching DOOM's 320x200 resolution
-    // Origin at bottom-left (0, 0), extends to top-right (320, 200)
+    // View is 320x168; status bar 32px below
     this.camera = new THREE.OrthographicCamera(
-      0,    // left
-      320,  // right
-      200,  // top
-      0,    // bottom
-      -1,   // near
-      1     // far
+      0, 320, 168, 0, -1, 1
     );
     this.camera.position.z = 1;
   }
@@ -156,23 +157,23 @@ export class WeaponRenderer {
 
     switch (weapon.state) {
       case WeaponState.READY:
-        frameIndex = 0; // Ready/idle frame
+        frameIndex = 0;
+        this.flashTicks = 0;
         break;
 
       case WeaponState.FIRING:
-        // Cycle through firing frames
         const firingFrames = frames.length - 1;
         frameIndex = Math.min(this.currentFrame % firingFrames + 1, frames.length - 1);
+        if (this.flashTicks === 0) this.flashTicks = 4;
         break;
 
       case WeaponState.RAISING:
-        frameIndex = 0;
-        break;
-
       case WeaponState.LOWERING:
         frameIndex = 0;
         break;
     }
+
+    if (this.flashTicks > 0) this.flashTicks--;
 
     // Update animation timer
     this.animationTimer++;
@@ -215,16 +216,44 @@ export class WeaponRenderer {
       material.needsUpdate = true;
     }
 
-    // Scale the weapon 1:1 with sprite pixels.
     this.weaponMesh.scale.set(sprite.width, sprite.height, 1);
 
     const bobPhase = this.animationTimer * 0.35;
     const bobX = Math.sin(bobPhase) * Math.min(6, this.bobOffset * 0.08);
     const bobY = Math.abs(Math.cos(bobPhase)) * Math.min(8, this.bobOffset * 0.12);
     const xPos = 160 + bobX;
-    const yPos = (sprite.height * 0.5) + 40 + bobY;
+    const yPos = 128 - (sprite.height * 0.5) + bobY;
 
     this.weaponMesh.position.set(xPos, yPos, 0);
+
+    const showFlash = this.flashTicks > 0 && WEAPON_FLASH.has(weapon.currentWeapon);
+    if (showFlash) {
+      const flashInfo = WEAPON_FLASH.get(weapon.currentWeapon)!;
+      const flashSprite = this.loadWeaponSprite(flashInfo.spriteName, flashInfo.frame);
+      if (flashSprite) {
+        if (!this.flashMesh) {
+          const geom = new THREE.PlaneGeometry(1, 1);
+          const mat = new THREE.MeshBasicMaterial({
+            transparent: true,
+            alphaTest: 0.1,
+            side: THREE.DoubleSide,
+            depthTest: false,
+            depthWrite: false,
+          });
+          this.flashMesh = new THREE.Mesh(geom, mat);
+          this.flashMesh.renderOrder = 10000;
+          this.scene.add(this.flashMesh);
+        }
+        const flashMat = this.flashMesh.material as THREE.MeshBasicMaterial;
+        flashMat.map = flashSprite.texture;
+        flashMat.needsUpdate = true;
+        this.flashMesh.scale.set(flashSprite.width, flashSprite.height, 1);
+        this.flashMesh.position.set(xPos, yPos, 0.01);
+        this.flashMesh.visible = true;
+      }
+    } else if (this.flashMesh) {
+      this.flashMesh.visible = false;
+    }
   }
 
   /**

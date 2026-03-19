@@ -8,7 +8,7 @@ import type { MapThing, MapData } from '../level/types';
 import type { Mobj } from './mobj';
 import { IntToFixed, DegreesToAngle } from '../core';
 import { getThingInfo } from './thinginfo';
-import { findSectorAtPoint, MTF_AMBUSH } from '../level';
+import { findSectorAtPoint, MTF_AMBUSH, MTF_HARD } from '../level';
 import { MobjFlags } from './mobj';
 
 export interface SpawnedThing {
@@ -21,6 +21,9 @@ export interface SpawnedThing {
   lightLevel: number;
 }
 
+/** Skill level bit for filtering (MTF_HARD = skill 3 / medium) */
+const SKILL_BIT = MTF_HARD;
+
 export class ThingSpawner {
   private spawnedThings: SpawnedThing[];
 
@@ -30,17 +33,28 @@ export class ThingSpawner {
 
   /**
    * Spawn all things from map data
+   * Matches DOOM skill filtering: p_mobj.c P_SpawnMapThing
    * @param mapData - Map data containing THINGS lump
    * @returns Array of spawned things (excluding player starts)
    */
   spawnThings(mapData: MapData): SpawnedThing[] {
     this.spawnedThings = [];
 
+    const skillBit = SKILL_BIT;
+
     for (const thing of mapData.things) {
-      // Skip player starts (types 1-4)
-      if (thing.type >= 1 && thing.type <= 4) {
-        continue;
-      }
+      // Skip deathmatch starts (type 11)
+      if (thing.type === 11) continue;
+
+      // Skip player starts (types 1-4) - handled separately
+      if (thing.type >= 1 && thing.type <= 4) continue;
+
+      // Skill filtering: thing must have our skill bit set (options 0 = all skills)
+      const opts = thing.options & 15;
+      if (opts !== 0 && (thing.options & skillBit) === 0) continue;
+
+      // Skip multiplayer-only things in single player
+      if ((thing.options & 16) !== 0) continue;
 
       const spawned = this.spawnThing(thing, mapData);
       if (spawned) {

@@ -18,8 +18,10 @@ const SOUND_LUMPS: Record<string, string> = {
   shotgunGuySight: 'DSSGTSIT',
   playerPain: 'DSPLPAIN',
   monsterDeath: 'DSPODTH1',
+  zombieDeath: 'DSPODTH1',
   shotgunGuyDeath: 'DSSGTDTH',
   impDeath: 'DSBGDTH1',
+  demonDeath: 'DSSGTDTH',
   barrel: 'DSBAREXP',
   oof: 'DSOOF',
 };

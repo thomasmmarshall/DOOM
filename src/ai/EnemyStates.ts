@@ -51,9 +51,17 @@ function getEnemyAI(enemy: Mobj): EnemyAI {
   return (enemy as any).ai as EnemyAI;
 }
 
+const DEATH_FRAMES: Record<number, string> = {
+  2035: 'B',
+  3001: 'M',
+  3002: 'N',
+  3004: 'L',
+  9: 'L',
+};
+
 function updateMonsterFrame(enemy: Mobj, ai: EnemyAI): void {
   if (enemy.health <= 0) {
-    enemy.frame = enemy.type === 2035 ? 'B' : 'H';
+    enemy.frame = DEATH_FRAMES[enemy.type] ?? 'L';
     return;
   }
 
@@ -174,11 +182,13 @@ export function updateMonster(
     ai.attackCooldown <= 0 &&
     ai.reactiontime <= 0 &&
     dist <= missileRange;
-  const shouldAttack = canAttack && (dist <= meleeRange || (pRandom() % 100) < 18);
+  // DOOM: melee always; missile only 18% chance per check (p_enemy.c A_Chase)
+  const missileChance = (pRandom() % 100) < 18;
+  const shouldAttack = canAttack && (dist <= meleeRange || missileChance);
 
   if (shouldAttack) {
     ai.state = AIState.ATTACK;
-    ai.attackCooldown = enemy.type === 9 ? 30 : 24;
+    ai.attackCooldown = enemy.type === 9 ? 50 : 40;
     attackPlayer(enemy, player);
   } else {
     ai.state = AIState.CHASE;

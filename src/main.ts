@@ -17,7 +17,7 @@ import { createPlayerMobj, type Mobj, MobjFlags, ThinkerManager, TriggerSystem, 
 import { movePlayer, applyFriction, applyGravity, applyZMomentum, calculateViewZ, applyCollision } from './physics';
 import type { MapData } from './level';
 import { DoorManager, PlatformManager } from './sectors';
-import { StatusBar, TitleScreen, type PlayerStats } from './ui';
+import { StatusBar, TitleScreen, BorderFrame, type PlayerStats } from './ui';
 import { createPlayerWeapon, updateWeapon, fireWeapon, WeaponType, performHitscan, WEAPON_INFO, switchPlayerWeapon, canPlayerUseWeapon, consumeWeaponAmmo } from './weapons/WeaponSystem';
 import { damageActor, WeaponDamage } from './game/Damage';
 import { tryPickupItem, checkItemCollision } from './game/Pickups';
@@ -26,7 +26,7 @@ import { MusicPlayer, SoundManager } from './audio';
 
 const DOOM_DISPLAY_ASPECT = 4 / 3;
 const DOOM_INTERNAL_WIDTH = 320;
-const DOOM_INTERNAL_HEIGHT = 200;
+const DOOM_VIEW_HEIGHT = 168;  // 3D view area; status bar 32px below
 const DOOM_HORIZONTAL_FOV = 73.74;
 
 function horizontalToVerticalFov(horizontalFov: number, aspect: number): number {
@@ -62,6 +62,8 @@ class DoomGame {
   private sectorBaseLightLevels: number[] = [];
   private levelTime: number = 0;
   private playerDied: boolean = false;
+  private gameContainer?: HTMLElement;
+  private viewContainer?: HTMLElement;
 
   constructor() {
     // Initialize trigonometry tables
@@ -76,10 +78,11 @@ class DoomGame {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x000000);
 
-    // DOOM renders to 320x200 and displays it stretched to 4:3.
+    // DOOM view is 320x168; status bar 320x32 below.
+    const viewAspect = DOOM_INTERNAL_WIDTH / DOOM_VIEW_HEIGHT;
     this.camera = new THREE.PerspectiveCamera(
-      horizontalToVerticalFov(DOOM_HORIZONTAL_FOV, DOOM_DISPLAY_ASPECT),
-      DOOM_DISPLAY_ASPECT,
+      horizontalToVerticalFov(DOOM_HORIZONTAL_FOV, viewAspect),
+      viewAspect,
       1,
       10000
     );
@@ -90,9 +93,17 @@ class DoomGame {
     this.renderer.domElement.style.imageRendering = 'pixelated';
     this.renderer.domElement.style.imageRendering = 'crisp-edges';
 
-    // Calculate viewport size maintaining 4:3 aspect ratio
+    this.gameContainer = document.createElement('div');
+    this.gameContainer.id = 'game-container';
+    this.gameContainer.style.cssText = 'position:absolute; display:flex; flex-direction:column; align-items:stretch;';
+    document.body.appendChild(this.gameContainer);
+
+    this.viewContainer = document.createElement('div');
+    this.viewContainer.style.cssText = 'position:relative; flex:0 0 84%; width:100%; overflow:visible;';
+    this.gameContainer.appendChild(this.viewContainer);
+    this.viewContainer.appendChild(this.renderer.domElement);
+
     this.updateRendererSize();
-    document.body.appendChild(this.renderer.domElement);
 
     // Set up orbit controls for camera navigation
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
@@ -139,19 +150,21 @@ class DoomGame {
       displayHeight = displayWidth / targetAspect;
     }
 
-    this.renderer.setSize(DOOM_INTERNAL_WIDTH, DOOM_INTERNAL_HEIGHT, false);
-    this.renderer.domElement.style.width = `${displayWidth}px`;
-    this.renderer.domElement.style.height = `${displayHeight}px`;
-
-    // Center the canvas
-    this.renderer.domElement.style.position = 'absolute';
-    this.renderer.domElement.style.left = `${(window.innerWidth - displayWidth) / 2}px`;
-    this.renderer.domElement.style.top = `${(window.innerHeight - displayHeight) / 2}px`;
+    this.renderer.setSize(DOOM_INTERNAL_WIDTH, DOOM_VIEW_HEIGHT, false);
+    const container = document.getElementById('game-container');
+    if (container) {
+      container.style.width = `${displayWidth}px`;
+      container.style.height = `${displayHeight}px`;
+      container.style.left = `${(window.innerWidth - displayWidth) / 2}px`;
+      container.style.top = `${(window.innerHeight - displayHeight) / 2}px`;
+      this.renderer.domElement.style.width = '100%';
+      this.renderer.domElement.style.height = '100%';
+    }
   }
 
   private onResize(): void {
     this.updateRendererSize();
-    this.camera.aspect = DOOM_DISPLAY_ASPECT;
+    this.camera.aspect = DOOM_INTERNAL_WIDTH / DOOM_VIEW_HEIGHT;
     this.camera.updateProjectionMatrix();
   }
 
@@ -403,7 +416,17 @@ class DoomGame {
 
       // Create weapon renderer and HUD
       this.weaponRenderer = new WeaponRenderer(wad, rgbaPalette);
-      this.statusBar = new StatusBar(wad, rgbaPalette);
+      this.statusBar = new StatusBar(wad, rgbaPalette, this.gameContainer);
+      const borderFrame = new BorderFrame(wad, rgbaPalette);
+      await borderFrame.init();
+      if (this.viewContainer) {
+        const borderCanvas = borderFrame.getCanvas();
+        borderCanvas.style.position = 'absolute';
+        borderCanvas.style.left = '-8px';
+        borderCanvas.style.top = '-8px';
+        this.viewContainer.appendChild(borderCanvas);
+        borderFrame.render();
+      }
       this.soundManager = new SoundManager(wad);
       this.musicPlayer = new MusicPlayer(wad);
       await this.statusBar.init();
