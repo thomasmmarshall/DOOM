@@ -28,7 +28,9 @@ export enum DoorType {
   OPEN_STAY = 'OPEN_STAY', // Opens and stays open
   CLOSE = 'CLOSE',         // Closes from open position
   RAISE = 'RAISE',         // Like normal but faster
-  BLAZING = 'BLAZING',     // Very fast
+  BLAZING = 'BLAZING',     // Very fast, wait, close
+  /** Fast open (blazing), then stay open (EV_DoDoor blazeOpen / locked switch 99,133–137). */
+  BLAZING_OPEN_STAY = 'BLAZING_OPEN_STAY',
 }
 
 /**
@@ -86,7 +88,7 @@ export class DoorManager {
     // Door speed based on type
     let speed = IntToFixed(2); // Normal speed
     if (type === DoorType.RAISE) speed = IntToFixed(4);
-    if (type === DoorType.BLAZING) speed = IntToFixed(8);
+    if (type === DoorType.BLAZING || type === DoorType.BLAZING_OPEN_STAY) speed = IntToFixed(8);
 
     const door: DoorThinker = {
       sectorIndex,
@@ -138,7 +140,7 @@ export class DoorManager {
             this.onCeilingChange(door.sectorIndex, oldOpenHeight, newHeight);
           }
 
-          if (door.type === DoorType.OPEN_STAY) {
+          if (door.type === DoorType.OPEN_STAY || door.type === DoorType.BLAZING_OPEN_STAY) {
             door.state = DoorState.OPEN;
             this.doors.delete(door.sectorIndex); // Remove - stays open
           } else {

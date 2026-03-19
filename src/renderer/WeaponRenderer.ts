@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import type { WADReader } from '../wad';
 import { PatchDecoder } from '../graphics';
 import type { PlayerWeapon } from '../weapons/WeaponSystem';
-import { WeaponType, WeaponState } from '../weapons/WeaponSystem';
+import { WEAPON_INFO, WeaponType, WeaponState } from '../weapons/WeaponSystem';
 import { FRACUNIT, FixedMul, FixedToInt, IntToFixed, type Fixed } from '../core/fixed';
 import { finecosine, finesine, FINEANGLES, FINEMASK } from '../core/tables';
 
@@ -81,6 +81,7 @@ const WEAPON_FRAMES: Map<WeaponType, WeaponFrame[]> = new Map([
     { spriteName: 'SHTG', frame: 'A' },
     { spriteName: 'SHTG', frame: 'B' },
     { spriteName: 'SHTG', frame: 'C' },
+    { spriteName: 'SHTG', frame: 'D' },
   ]],
   [WeaponType.CHAINGUN, [
     { spriteName: 'CHGG', frame: 'A' },
@@ -106,6 +107,11 @@ const WEAPON_FRAMES: Map<WeaponType, WeaponFrame[]> = new Map([
     { spriteName: 'SHT2', frame: 'A' },
     { spriteName: 'SHT2', frame: 'B' },
     { spriteName: 'SHT2', frame: 'C' },
+    { spriteName: 'SHT2', frame: 'D' },
+    { spriteName: 'SHT2', frame: 'E' },
+    { spriteName: 'SHT2', frame: 'F' },
+    { spriteName: 'SHT2', frame: 'G' },
+    { spriteName: 'SHT2', frame: 'H' },
   ]],
 ]);
 
@@ -128,8 +134,6 @@ export class WeaponRenderer {
   private weaponMesh?: THREE.Mesh;
   private flashMesh?: THREE.Mesh;
   private spriteCache: Map<string, CachedWeaponSprite>;
-  private currentFrame: number = 0;
-  private animationTimer: number = 0;
 
   constructor(wad: WADReader, palette: Uint8ClampedArray) {
     this.wad = wad;
@@ -226,22 +230,30 @@ export class WeaponRenderer {
         frameIndex = 0;
         break;
 
-      case WeaponState.FIRING:
-        const firingFrames = frames.length - 1;
-        frameIndex = Math.min(this.currentFrame % firingFrames + 1, frames.length - 1);
+      case WeaponState.FIRING: {
+        const extra = frames.length - 1;
+        if (extra <= 0) {
+          frameIndex = 0;
+          break;
+        }
+        const info = WEAPON_INFO.get(weapon.currentWeapon);
+        const fireDelay = Math.max(1, info?.fireDelay ?? 1);
+        const elapsed = fireDelay - weapon.fireTimer;
+        const bucket =
+          extra <= 1
+            ? 0
+            : Math.min(
+                Math.floor((Math.max(0, elapsed - 1) * extra) / fireDelay),
+                extra - 1,
+              );
+        frameIndex = 1 + bucket;
         break;
+      }
 
       case WeaponState.RAISING:
       case WeaponState.LOWERING:
         frameIndex = 0;
         break;
-    }
-
-    // Update animation timer
-    this.animationTimer++;
-    if (this.animationTimer >= 4) { // Change frame every 4 tics
-      this.animationTimer = 0;
-      this.currentFrame++;
     }
 
     // Load sprite for current frame

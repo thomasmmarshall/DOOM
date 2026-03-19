@@ -5,7 +5,8 @@
  */
 
 import type { MapData, MapLineDef } from '../level/types';
-import type { DoorManager, DoorType } from '../sectors/DoorSystem';
+import type { DoorManager } from '../sectors/DoorSystem';
+import { DoorType } from '../sectors/DoorSystem';
 import type { PlatformManager, PlatformType } from '../sectors/PlatformSystem';
 import { findBackSectorForLine, findSectorsByTag } from '../sectors';
 import type { Mobj } from './mobj';
@@ -153,26 +154,59 @@ export class TriggerSystem {
   /**
    * Execute a line special
    */
-  private executeSpecial(lineIndex: number, line: MapLineDef, _player: Mobj): boolean {
+  private executeSpecial(lineIndex: number, line: MapLineDef, player: Mobj): boolean {
     const special = line.special;
+
+    // Locked switch doors (blazing open by tag) — vanilla 99, 133–137
+    if (
+      special === 99 ||
+      special === 133 ||
+      special === 134 ||
+      special === 135 ||
+      special === 136 ||
+      special === 137
+    ) {
+      if (line.tag === 0) return false;
+      if (!this.playerHasKeyForLock(player, special)) return false;
+      return this.activateDoorByTag(line.tag, DoorType.BLAZING_OPEN_STAY);
+    }
+
+    // Manual vertical doors (USE, back sector) — vanilla 26–28 locked, 31/32–34, 117/118
+    if (special === 26 || special === 27 || special === 28) {
+      if (!this.playerHasKeyForLock(player, special)) return false;
+      return this.activateManualDoor(lineIndex, DoorType.NORMAL);
+    }
+    if (special === 31) {
+      return this.activateManualDoor(lineIndex, DoorType.OPEN_STAY);
+    }
+    if (special === 32 || special === 33 || special === 34) {
+      if (!this.playerHasKeyForLock(player, special)) return false;
+      return this.activateManualDoor(lineIndex, DoorType.OPEN_STAY);
+    }
+    if (special === 117) {
+      return this.activateManualDoor(lineIndex, DoorType.BLAZING);
+    }
+    if (special === 118) {
+      return this.activateManualDoor(lineIndex, DoorType.BLAZING_OPEN_STAY);
+    }
 
     // Door specials
     if (special === LineSpecials.DR_DOOR ||
         special === LineSpecials.W1_DOOR_RAISE ||
         special === LineSpecials.SR_DOOR_RAISE) {
       return line.tag === 0
-        ? this.activateManualDoor(lineIndex, 'NORMAL')
-        : this.activateDoorByTag(line.tag, 'NORMAL');
+        ? this.activateManualDoor(lineIndex, DoorType.NORMAL)
+        : this.activateDoorByTag(line.tag, DoorType.NORMAL);
     }
 
     if (special === LineSpecials.W1_DOOR_OPEN ||
         special === LineSpecials.SR_DOOR_OPEN) {
-      return this.activateDoorByTag(line.tag, 'OPEN_STAY');
+      return this.activateDoorByTag(line.tag, DoorType.OPEN_STAY);
     }
 
     if (special === LineSpecials.W1_DOOR_CLOSE ||
         special === LineSpecials.SR_DOOR_CLOSE) {
-      return this.activateDoorByTag(line.tag, 'CLOSE');
+      return this.activateDoorByTag(line.tag, DoorType.CLOSE);
     }
 
     // Platform specials
@@ -202,24 +236,56 @@ export class TriggerSystem {
   /**
    * Activate all doors with matching tag
    */
-  private activateDoorByTag(tag: number, doorType: string): boolean {
+  private activateDoorByTag(tag: number, doorType: DoorType): boolean {
     if (tag === 0) return false;
 
     let activated = false;
     for (const sectorIndex of findSectorsByTag(this.mapData, tag)) {
-      const success = this.doorManager.activateDoor(sectorIndex, doorType as DoorType);
+      const success = this.doorManager.activateDoor(sectorIndex, doorType);
       if (success) activated = true;
     }
     return activated;
   }
 
-  private activateManualDoor(lineIndex: number, doorType: string): boolean {
+  private activateManualDoor(lineIndex: number, doorType: DoorType): boolean {
     const sectorIndex = findBackSectorForLine(this.mapData, lineIndex);
     if (sectorIndex === null) {
       return false;
     }
 
-    return this.doorManager.activateDoor(sectorIndex, doorType as DoorType);
+    return this.doorManager.activateDoor(sectorIndex, doorType);
+  }
+
+  /** EV_DoLockedDoor-style key check (blue/red/yellow card or skull). */
+  private playerHasKeyForLock(player: Mobj, special: number): boolean {
+    const p = player.player;
+    if (!p) return false;
+    const k = p.keys;
+    switch (special) {
+      case 26:
+      case 32:
+      case 99:
+      case 133:
+        if (k.blueCard || k.blueSkull) return true;
+        p.message = 'You need a blue key';
+        return false;
+      case 28:
+      case 33:
+      case 134:
+      case 135:
+        if (k.redCard || k.redSkull) return true;
+        p.message = 'You need a red key';
+        return false;
+      case 27:
+      case 34:
+      case 136:
+      case 137:
+        if (k.yellowCard || k.yellowSkull) return true;
+        p.message = 'You need a yellow key';
+        return false;
+      default:
+        return true;
+    }
   }
 
   /**
@@ -253,8 +319,10 @@ export class TriggerSystem {
       return activation === ActivationType.WALK;
     }
 
-    // SR types (switch/use triggers)
-    const useSpecials = [61, 62, 63, 42, 87];
+    // USE: switches + manual / locked doors (see p_switch.c P_UseSpecialLine)
+    const useSpecials = [
+      26, 27, 28, 31, 32, 33, 34, 61, 62, 63, 42, 87, 99, 117, 118, 133, 134, 135, 136, 137,
+    ];
     if (useSpecials.includes(special)) {
       return activation === ActivationType.USE;
     }
@@ -266,8 +334,8 @@ export class TriggerSystem {
    * Check if special can only be activated once
    */
   private isOnceOnly(special: number): boolean {
-    // W1 and S1 types are once-only
-    const onceOnlySpecials = [2, 3, 4, 10, 11, 36, 52]; // W1/S1 types (incl. exits)
+    // W1/S1 types; locked SR blazing open clears line in vanilla (133,135,137)
+    const onceOnlySpecials = [2, 3, 4, 10, 11, 36, 52, 133, 135, 137];
     return onceOnlySpecials.includes(special);
   }
 
