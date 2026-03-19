@@ -33,7 +33,7 @@ import {
 import { spawnPlayerProjectile } from './weapons/projectiles';
 import { damageActor, gunshotPelletDamage, punchDamage, chainsawDamage, setPlayerCountedKillHook } from './game/Damage';
 import { tryPickupItem, checkItemCollision } from './game/Pickups';
-import { updateMonster } from './ai';
+import { updateMonster, type MonsterAttackCallback } from './ai';
 import { MusicPlayer, SoundManager } from './audio';
 
 const DOOM_DISPLAY_ASPECT = 4 / 3;
@@ -85,6 +85,8 @@ class DoomGame {
   private weaponFlashUntilTick: number = 0;
   /** ST_Ticker `st_oldhealth`: health at end of previous gametic. */
   private playerHealthAtLastTickEnd: number = 100;
+  /** Full-viewport red tint while `damageCount` &gt; 0 (classic pain flash). */
+  private damageFlashMesh?: THREE.Mesh;
 
   private sessionWad?: Awaited<ReturnType<typeof loadWAD>>;
   private sessionPalette?: Uint8Array;
@@ -253,6 +255,12 @@ class DoomGame {
   }
 
   private teardownPlaySession(): void {
+    if (this.damageFlashMesh) {
+      this.camera.remove(this.damageFlashMesh);
+      this.damageFlashMesh.geometry.dispose();
+      (this.damageFlashMesh.material as THREE.MeshBasicMaterial).dispose();
+      this.damageFlashMesh = undefined;
+    }
     setPlayerCountedKillHook(undefined);
     this.ticker?.stop();
     this.ticker = undefined;
@@ -409,6 +417,60 @@ class DoomGame {
     });
   }
 
+  private onMonsterAttack: MonsterAttackCallback = (enemy, melee) => {
+    switch (enemy.type) {
+      case 3001:
+        this.soundManager?.play(melee ? 'impClaw' : 'impFireball', melee ? 0.48 : 0.42);
+        break;
+      case 3004:
+        this.soundManager?.play('pistol', 0.38);
+        break;
+      case 9:
+        this.soundManager?.play('shotgun', 0.42);
+        break;
+      default:
+        break;
+    }
+  };
+
+  private ensureDamageFlashMesh(): void {
+    if (this.damageFlashMesh) return;
+    const geom = new THREE.PlaneGeometry(1, 1);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0x881100,
+      transparent: true,
+      opacity: 0,
+      depthTest: false,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.Mesh(geom, mat);
+    mesh.renderOrder = 9998;
+    mesh.visible = false;
+    mesh.rotation.y = Math.PI;
+    this.camera.add(mesh);
+    this.damageFlashMesh = mesh;
+  }
+
+  private updateDamageFlashFromPlayer(): void {
+    if (!this.damageFlashMesh || !this.playerMobj?.player || this.playerDied) return;
+    const dc = this.playerMobj.player.damageCount;
+    const mat = this.damageFlashMesh.material as THREE.MeshBasicMaterial;
+    const dist = 0.12;
+    const vFOV = THREE.MathUtils.degToRad(this.camera.fov);
+    const h = 2 * Math.tan(vFOV / 2) * dist;
+    const w = h * this.camera.aspect;
+    this.damageFlashMesh.scale.set(w, h, 1);
+    this.damageFlashMesh.position.set(0, 0, -dist);
+    if (dc > 0) {
+      mat.opacity = Math.min(0.5, (dc / 100) * 0.55);
+      this.damageFlashMesh.visible = true;
+    } else {
+      mat.opacity = 0;
+      this.damageFlashMesh.visible = false;
+    }
+  }
+
   private playDeathSound(type: number): void {
     const sound =
       type === 3001 ? 'impDeath' :
@@ -451,7 +513,7 @@ class DoomGame {
       const thinker = spawned.mobj.countsTowardKill
         ? (mobj: Mobj) => {
             if (this.playerMobj && this.mapData) {
-              updateMonster(mobj, this.playerMobj, this.mapData, this.noiseOrigin);
+              updateMonster(mobj, this.playerMobj, this.mapData, this.noiseOrigin, this.onMonsterAttack);
             }
           }
         : undefined;
@@ -702,6 +764,7 @@ class DoomGame {
 
         // Position camera at player
         this.updateCamera();
+        this.ensureDamageFlashMesh();
       } else {
         // Default camera position
         this.camera.position.set(0, 100, 0);
@@ -1134,6 +1197,8 @@ class DoomGame {
       const showFlash = this.weaponFlashUntilTick > this.tickCount;
       this.weaponRenderer.update(this.playerMobj.player.weapon, bob, this.tickCount, showFlash);
     }
+
+    this.updateDamageFlashFromPlayer();
 
     // Render scene
     this.renderer.render(this.scene, this.camera);

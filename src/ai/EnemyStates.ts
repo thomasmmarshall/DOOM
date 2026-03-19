@@ -109,13 +109,17 @@ function attackPlayer(enemy: Mobj, player: Mobj): void {
   }
 }
 
+/** Fired the moment a monster lands an attack (for audio / feedback). */
+export type MonsterAttackCallback = (enemy: Mobj, melee: boolean) => void;
+
 const SOUND_RANGE = 768; // DOOM: P_NoiseAlert propagates through sectors
 
 export function updateMonster(
   enemy: Mobj,
   player: Mobj,
   mapData: MapData,
-  noiseOrigin?: { x: number; y: number }
+  noiseOrigin?: { x: number; y: number },
+  onAttack?: MonsterAttackCallback
 ): void {
   const ai = getEnemyAI(enemy);
 
@@ -190,6 +194,8 @@ export function updateMonster(
     ai.state = AIState.ATTACK;
     // Cooldown so enemy doesn't shoot again immediately (DOOM: attack state has duration)
     ai.attackCooldown = enemy.type === 9 ? 56 : 48;
+    const melee = dist <= meleeRange;
+    onAttack?.(enemy, melee);
     attackPlayer(enemy, player);
   } else {
     ai.state = AIState.CHASE;

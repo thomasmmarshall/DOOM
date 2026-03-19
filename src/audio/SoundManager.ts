@@ -22,6 +22,8 @@ const SOUND_LUMPS: Record<string, string> = {
   shotgunGuyDeath: 'DSPODTH2',
   impDeath: 'DSBGDTH1',
   demonDeath: 'DSSGTDTH',
+  impClaw: 'DSCLAW',
+  impFireball: 'DSFIRSHT',
   barrel: 'DSBAREXP',
   oof: 'DSOOF',
 };
