@@ -33,6 +33,8 @@ export class MainMenu {
   private selectedEpisode: number = 0;
   private selectedMapIndex: number = 0;
   private episodeMapNames: string[] = [];
+  /** IWAD has MAPxx but no ExMy (DOOM II / Final Doom) — episode menu would invent bogus E3M1 etc. */
+  private commercialMapOnly: boolean = false;
   private firstInteractionFired: boolean = false;
 
   constructor(
@@ -89,6 +91,23 @@ export class MainMenu {
         }
       }
     }
+
+    const discovered = this.wad.findMapLumps();
+    this.commercialMapOnly =
+      discovered.some((n) => /^MAP\d\d$/.test(n)) && !discovered.some((n) => /^E\d+M\d+$/.test(n));
+  }
+
+  private mapsForEpisode(ep: number): string[] {
+    const re = new RegExp(`^E${ep}M\\d+$`, 'i');
+    return this.wad.findMapLumps().filter((n) => re.test(n));
+  }
+
+  private setEpisodeMapList(ep: number): void {
+    this.episodeMapNames = this.mapsForEpisode(ep);
+    if (this.episodeMapNames.length === 0 && this.wad.hasLump(`E${ep}M1`)) {
+      this.episodeMapNames.push(`E${ep}M1`);
+    }
+    this.selectedMapIndex = 0;
   }
 
   private createPatchCanvas(decoded: { width: number; height: number; pixels: Uint8ClampedArray }): HTMLCanvasElement {
@@ -165,8 +184,7 @@ export class MainMenu {
         e.preventDefault();
         this.selectedEpisode = this.itemOn;
         const ep = this.selectedEpisode + 1;
-        this.episodeMapNames = this.wad.findMapLumps().filter((n) => /^E\d+M\d+$/.test(n) && n.startsWith(`E${ep}M`));
-        if (this.episodeMapNames.length === 0) this.episodeMapNames.push(`E${ep}M1`);
+        this.setEpisodeMapList(ep);
         this.screen = 'map';
         this.itemOn = 0;
         this.callbacks.onMenuSound?.();
@@ -177,21 +195,33 @@ export class MainMenu {
     } else if (this.screen === 'map') {
       if (e.code === 'ArrowDown' || e.code === 'KeyS') {
         e.preventDefault();
-        this.itemOn = Math.min(this.episodeMapNames.length - 1, this.itemOn + 1);
+        if (this.episodeMapNames.length === 0) return;
+        const max = this.episodeMapNames.length - 1;
+        this.itemOn = Math.min(max, this.itemOn + 1);
         this.callbacks.onMenuSound?.();
       } else if (e.code === 'ArrowUp' || e.code === 'KeyW') {
         e.preventDefault();
+        if (this.episodeMapNames.length === 0) return;
         this.itemOn = Math.max(0, this.itemOn - 1);
         this.callbacks.onMenuSound?.();
       } else if (e.code === 'Enter' || e.code === 'Space') {
         e.preventDefault();
+        if (this.episodeMapNames.length === 0) {
+          this.callbacks.onMenuSound?.();
+          return;
+        }
         this.selectedMapIndex = this.itemOn;
         this.screen = 'skill';
         this.itemOn = 2;
         this.callbacks.onMenuSound?.();
       } else if (e.code === 'Escape') {
-        this.screen = 'episode';
-        this.itemOn = this.selectedEpisode;
+        if (this.commercialMapOnly) {
+          this.screen = 'main';
+          this.itemOn = 0;
+        } else {
+          this.screen = 'episode';
+          this.itemOn = this.selectedEpisode;
+        }
       }
     } else if (this.screen === 'skill') {
       if (e.code === 'ArrowDown' || e.code === 'KeyS') {
@@ -233,8 +263,7 @@ export class MainMenu {
         this.itemOn = item;
         this.selectedEpisode = item;
         const ep = this.selectedEpisode + 1;
-        this.episodeMapNames = this.wad.findMapLumps().filter((n) => /^E\d+M\d+$/.test(n) && n.startsWith(`E${ep}M`));
-        if (this.episodeMapNames.length === 0) this.episodeMapNames.push(`E${ep}M1`);
+        this.setEpisodeMapList(ep);
         this.screen = 'map';
         this.itemOn = 0;
         this.callbacks.onMenuSound?.();
@@ -262,8 +291,15 @@ export class MainMenu {
   private activateMainItem(index: number): void {
     switch (index) {
       case 0: // New Game
-        this.screen = 'episode';
-        this.itemOn = 0;
+        if (this.commercialMapOnly) {
+          this.episodeMapNames = this.wad.findMapLumps().filter((n) => /^MAP\d\d$/.test(n));
+          this.selectedMapIndex = 0;
+          this.screen = 'map';
+          this.itemOn = 0;
+        } else {
+          this.screen = 'episode';
+          this.itemOn = 0;
+        }
         this.callbacks.onMenuSound?.();
         break;
       case 1: // Options - stub
@@ -334,9 +370,13 @@ export class MainMenu {
       this.ctx.font = '16px sans-serif';
       this.ctx.fillText('Which map?', 48, 52);
       let y = 63;
-      for (let i = 0; i < this.episodeMapNames.length; i++) {
-        this.ctx.fillText(this.episodeMapNames[i], 48, y + 12);
-        y += LINEHEIGHT;
+      if (this.episodeMapNames.length === 0) {
+        this.ctx.fillText('(no maps for this episode)', 48, y + 12);
+      } else {
+        for (let i = 0; i < this.episodeMapNames.length; i++) {
+          this.ctx.fillText(this.episodeMapNames[i], 48, y + 12);
+          y += LINEHEIGHT;
+        }
       }
       if (skullPatch) this.ctx.drawImage(skullPatch, 48 + SKULLXOFF, 63 - 5 + this.itemOn * LINEHEIGHT);
     } else if (this.screen === 'skill') {
