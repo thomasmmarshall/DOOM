@@ -7,6 +7,31 @@
 
 import type { WadInfo, LumpInfo } from './types';
 
+/**
+ * Sort map lump names in playable order (E1M1…E1M9, E2M1…, then MAP01…).
+ * Plain string sort breaks ordering for multi-digit mission numbers (e.g. E1M2 vs E1M10).
+ */
+export function compareDoomMapNames(a: string, b: string): number {
+  const ua = a.toUpperCase();
+  const ub = b.toUpperCase();
+
+  const ea = /^E(\d+)M(\d+)$/.exec(ua);
+  const eb = /^E(\d+)M(\d+)$/.exec(ub);
+  if (ea && eb) {
+    const epDiff = parseInt(ea[1], 10) - parseInt(eb[1], 10);
+    if (epDiff !== 0) return epDiff;
+    return parseInt(ea[2], 10) - parseInt(eb[2], 10);
+  }
+
+  const ma = /^MAP(\d+)$/.exec(ua);
+  const mb = /^MAP(\d+)$/.exec(ub);
+  if (ma && mb) {
+    return parseInt(ma[1], 10) - parseInt(mb[1], 10);
+  }
+
+  return ua.localeCompare(ub);
+}
+
 export class WADReader {
   private buffer: ArrayBuffer;
   private view: DataView;
@@ -165,22 +190,24 @@ export class WADReader {
 
   /**
    * Find map marker lump (E1M1, E1M2, MAP01, etc.)
+   * Scans the directory in order (lumpArray). The name→lump map drops earlier lumps when
+   * names repeat, so we must not rely on this.lumps.keys() or we'd miss valid maps.
    */
   public findMapLumps(): string[] {
+    const seen = new Set<string>();
     const mapNames: string[] = [];
 
-    for (const name of this.lumps.keys()) {
-      // Episode format: ExMy (e.g., E1M1)
-      if (/^E\dM\d$/.test(name)) {
-        mapNames.push(name);
-      }
-      // DOOM 2 format: MAPxx (e.g., MAP01)
-      else if (/^MAP\d\d$/.test(name)) {
+    for (const lump of this.lumpArray) {
+      const name = lump.name;
+      const isEpisode = /^E\d+M\d+$/.test(name);
+      const isDoom2 = /^MAP\d\d$/.test(name);
+      if ((isEpisode || isDoom2) && !seen.has(name)) {
+        seen.add(name);
         mapNames.push(name);
       }
     }
 
-    return mapNames.sort();
+    return mapNames.sort(compareDoomMapNames);
   }
 
   /**

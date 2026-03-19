@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { WADReader } from './WADReader';
+import { WADReader, compareDoomMapNames } from './WADReader';
 
 describe('WADReader', () => {
   /**
@@ -63,6 +63,12 @@ describe('WADReader', () => {
     expect(wad.hasLump('test')).toBe(true);
     expect(wad.hasLump('Test')).toBe(true);
     expect(wad.hasLump('TEST')).toBe(true);
+  });
+
+  it('should sort map names by episode then mission', () => {
+    expect(['E1M2', 'E1M1', 'E2M1'].sort(compareDoomMapNames)).toEqual(['E1M1', 'E1M2', 'E2M1']);
+    expect(['E1M10', 'E1M2'].sort(compareDoomMapNames)).toEqual(['E1M2', 'E1M10']);
+    expect(['MAP02', 'MAP10', 'MAP01'].sort(compareDoomMapNames)).toEqual(['MAP01', 'MAP02', 'MAP10']);
   });
 
   it('should throw error for invalid WAD', () => {

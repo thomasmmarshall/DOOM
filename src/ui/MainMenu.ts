@@ -165,7 +165,7 @@ export class MainMenu {
         e.preventDefault();
         this.selectedEpisode = this.itemOn;
         const ep = this.selectedEpisode + 1;
-        this.episodeMapNames = this.wad.findMapLumps().filter((n) => /^E\dM\d$/.test(n) && n.startsWith(`E${ep}M`));
+        this.episodeMapNames = this.wad.findMapLumps().filter((n) => /^E\d+M\d+$/.test(n) && n.startsWith(`E${ep}M`));
         if (this.episodeMapNames.length === 0) this.episodeMapNames.push(`E${ep}M1`);
         this.screen = 'map';
         this.itemOn = 0;
@@ -233,7 +233,7 @@ export class MainMenu {
         this.itemOn = item;
         this.selectedEpisode = item;
         const ep = this.selectedEpisode + 1;
-        this.episodeMapNames = this.wad.findMapLumps().filter((n) => /^E\dM\d$/.test(n) && n.startsWith(`E${ep}M`));
+        this.episodeMapNames = this.wad.findMapLumps().filter((n) => /^E\d+M\d+$/.test(n) && n.startsWith(`E${ep}M`));
         if (this.episodeMapNames.length === 0) this.episodeMapNames.push(`E${ep}M1`);
         this.screen = 'map';
         this.itemOn = 0;

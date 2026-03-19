@@ -228,6 +228,25 @@ class DoomGame {
 
   private getNextMapName(current: string): string | null {
     const u = current.toUpperCase();
+    const epMap = /^E(\d+)M(\d+)$/.exec(u);
+    if (epMap) {
+      const ep = epMap[1];
+      const inEpisode = this.mapList.filter((n) => {
+        const m = /^E(\d+)M(\d+)$/.exec(n.toUpperCase());
+        return m !== null && m[1] === ep;
+      });
+      const idx = inEpisode.indexOf(u);
+      if (idx >= 0 && idx + 1 < inEpisode.length) {
+        return inEpisode[idx + 1] ?? null;
+      }
+      return null;
+    }
+    if (/^MAP\d\d$/i.test(u)) {
+      const idx = this.mapList.indexOf(u);
+      if (idx < 0 || idx + 1 >= this.mapList.length) return null;
+      const next = this.mapList[idx + 1];
+      return next && /^MAP\d\d$/i.test(next) ? next : null;
+    }
     const idx = this.mapList.indexOf(u);
     if (idx < 0 || idx + 1 >= this.mapList.length) return null;
     return this.mapList[idx + 1] ?? null;
