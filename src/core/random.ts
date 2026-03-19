@@ -20,13 +20,28 @@ const RND_TABLE = [
   120, 163, 236, 249,
 ];
 
-let playIndex = 0;
+let rndIndex = 0;
+let prndIndex = 0;
 
-export function pRandom(): number {
-  playIndex = (playIndex + 1) & 0xff;
-  return RND_TABLE[playIndex];
+/** linuxdoom-1.10 M_Random — HUD / sound pitch / wipes; separate from P_Random. */
+export function mRandom(): number {
+  rndIndex = (rndIndex + 1) & 0xff;
+  return RND_TABLE[rndIndex];
 }
 
+/** linuxdoom-1.10 P_Random — gameplay and demo-deterministic uses. */
+export function pRandom(): number {
+  prndIndex = (prndIndex + 1) & 0xff;
+  return RND_TABLE[prndIndex];
+}
+
+/** linuxdoom-1.10 M_ClearRandom */
+export function clearRandom(): void {
+  rndIndex = 0;
+  prndIndex = 0;
+}
+
+/** @deprecated alias for {@link clearRandom} */
 export function resetPRandom(): void {
-  playIndex = 0;
+  clearRandom();
 }

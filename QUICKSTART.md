@@ -66,7 +66,7 @@ Top-left corner shows current status:
 - **Physics**: 35 Hz fixed tick rate (DOOM accurate)
 - **Coordinate system**: DOOM → three.js conversion
 - **Movement**: Thrust-based with friction/gravity
-- **Note**: Collision detection not yet implemented (you can walk through walls)
+- **Collision**: Walls and solid mobjs (e.g. barrels) block movement when physics are on
 
 ## Troubleshooting
 

@@ -4,7 +4,6 @@ import {
   finesine,
   finecosine,
   FINEANGLES,
-  FINEMASK,
   ANGLETOFINESHIFT,
   FineCosine,
   FineSine,
@@ -33,12 +32,9 @@ describe('Trig tables (linuxdoom finesine / finecosine)', () => {
     expect(FineSine(ang << 19)).toBe(finesine[ang]);
   });
 
-  it('FineCosine uses finesine index without masking sum (high fine indices)', () => {
-    const idx = 7000;
-    const bam = idx << ANGLETOFINESHIFT;
-    expect(FineCosine(bam)).toBe(finesine[idx + FINEANGLES / 4]);
-    expect(finesine[idx + FINEANGLES / 4]).not.toBe(
-      finesine[(idx + FINEANGLES / 4) & FINEMASK],
-    );
+  it('FineCosine(bam) matches finecosine[fineIndex] for all fine indices', () => {
+    for (let idx = 0; idx < FINEANGLES; idx++) {
+      expect(FineCosine(idx << ANGLETOFINESHIFT)).toBe(finecosine[idx]);
+    }
   });
 });

@@ -2,7 +2,7 @@
  * Status face (linuxdoom-1.10/st_stuff.c ST_updateFaceWidget)
  */
 
-import { pRandom } from '../core';
+import { mRandom } from '../core';
 import type { Mobj } from '../game/mobj';
 import { FixedToFloat } from '../core/fixed';
 
@@ -165,7 +165,7 @@ export class StFaceWidgetState {
     }
 
     if (!this.facecount) {
-      this.faceindex = calcPainOffset(input.health) + (pRandom() % ST_NUMSTRAIGHTFACES);
+      this.faceindex = calcPainOffset(input.health) + (mRandom() % ST_NUMSTRAIGHTFACES);
       this.facecount = ST_STRAIGHTFACECOUNT;
       this.priority = 0;
     }
