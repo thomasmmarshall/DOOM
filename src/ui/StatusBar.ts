@@ -347,6 +347,6 @@ export class StatusBar {
   }
 
   dispose(): void {
-    document.body.removeChild(this.canvas);
+    this.canvas.parentNode?.removeChild(this.canvas);
   }
 }

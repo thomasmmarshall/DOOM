@@ -41,7 +41,8 @@ export enum SpecialCategory {
 export const LineSpecials = {
   // Doors
   DR_DOOR: 1,              // Door Open Wait Close (DR)
-  S1_EXIT: 11,             // Exit level
+  S1_EXIT: 11,             // Exit level (switch once)
+  W1_EXIT: 52,             // Exit level (walk once)
   W1_FLOOR_TURBO_LOWER: 36,
   SCROLL_WALL: 48,
   W1_DOOR_OPEN: 2,         // Door Open Stay (W1)
@@ -66,12 +67,25 @@ export class TriggerSystem {
   private doorManager: DoorManager;
   private platformManager: PlatformManager;
   private activatedLines: Set<number>;
+  private onLevelExit?: () => void;
 
-  constructor(mapData: MapData, doorManager: DoorManager, platformManager: PlatformManager) {
+  constructor(
+    mapData: MapData,
+    doorManager: DoorManager,
+    platformManager: PlatformManager,
+    onLevelExit?: () => void
+  ) {
     this.mapData = mapData;
     this.doorManager = doorManager;
     this.platformManager = platformManager;
+    this.onLevelExit = onLevelExit;
     this.activatedLines = new Set(); // Track W1/S1 (once-only) triggers
+  }
+
+  /** True if this linedef type responds to the USE key (player-activated lines only). */
+  isUseActivatableSpecial(special: number): boolean {
+    if (special === 0) return false;
+    return this.checkActivationType(special, ActivationType.USE);
   }
 
   /**
@@ -176,7 +190,8 @@ export class TriggerSystem {
       return this.activatePlatformByTag(line.tag, 'PERPETUAL_RAISE');
     }
 
-    if (special === LineSpecials.S1_EXIT) {
+    if (special === LineSpecials.S1_EXIT || special === LineSpecials.W1_EXIT) {
+      this.onLevelExit?.();
       return true;
     }
 
@@ -233,7 +248,7 @@ export class TriggerSystem {
     if (special === 1 || special === 11) return activation === ActivationType.USE; // DR / Exit switch
 
     // W1/WR types (walk triggers)
-    const walkSpecials = [2, 3, 4, 10, 36, 48, 88];
+    const walkSpecials = [2, 3, 4, 10, 36, 48, 52, 88];
     if (walkSpecials.includes(special)) {
       return activation === ActivationType.WALK;
     }
@@ -252,7 +267,7 @@ export class TriggerSystem {
    */
   private isOnceOnly(special: number): boolean {
     // W1 and S1 types are once-only
-    const onceOnlySpecials = [2, 3, 4, 10, 11, 36]; // W1/S1 types used in E1M1
+    const onceOnlySpecials = [2, 3, 4, 10, 11, 36, 52]; // W1/S1 types (incl. exits)
     return onceOnlySpecials.includes(special);
   }
 

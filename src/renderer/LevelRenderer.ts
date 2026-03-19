@@ -479,8 +479,31 @@ export class LevelRenderer {
    * Clean up resources
    */
   dispose(): void {
-    this.textureManager.clearCache();
     this.spriteRenderer.dispose();
+
+    for (const mesh of this.wallMeshes) {
+      this.scene.remove(mesh);
+      mesh.geometry.dispose();
+      const mat = mesh.material;
+      if (!Array.isArray(mat)) mat.dispose();
+      else for (const m of mat) m.dispose();
+    }
+    this.wallMeshes = [];
+    this.wallMeshInfo = [];
+
+    for (const meshes of this.sectorMeshes.values()) {
+      for (const mesh of meshes) {
+        this.scene.remove(mesh);
+        mesh.geometry.dispose();
+        const mat = mesh.material;
+        if (!Array.isArray(mat)) mat.dispose();
+        else for (const m of mat) m.dispose();
+      }
+    }
+    this.sectorMeshes.clear();
+
+    this.skyRenderer.removeFromScene(this.scene);
+    this.textureManager.clearCache();
   }
 
   private applyWallUVs(

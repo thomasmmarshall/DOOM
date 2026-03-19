@@ -71,4 +71,23 @@ export class SkyRenderer {
       this.mesh.position.y = cameraPosition.y; // Center vertically on camera
     }
   }
+
+  removeFromScene(scene: THREE.Scene): void {
+    if (!this.mesh) return;
+    scene.remove(this.mesh);
+    this.mesh.geometry.dispose();
+    const mat = this.mesh.material;
+    if (!Array.isArray(mat)) {
+      const basic = mat as THREE.MeshBasicMaterial;
+      basic.map?.dispose();
+      basic.dispose();
+    } else {
+      for (const m of mat) {
+        const basic = m as THREE.MeshBasicMaterial;
+        basic.map?.dispose();
+        basic.dispose();
+      }
+    }
+    this.mesh = null;
+  }
 }

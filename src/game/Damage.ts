@@ -9,6 +9,13 @@ import { MobjFlags } from './mobj';
 import { pRandom } from '../core';
 import { FixedToFloat } from '../core/fixed';
 
+let onPlayerCountedKill: (() => void) | undefined;
+
+/** Optional hook for level intermission stats (COUNTKILL monsters only). */
+export function setPlayerCountedKillHook(fn: (() => void) | undefined): void {
+  onPlayerCountedKill = fn;
+}
+
 /**
  * Damage flags
  */
@@ -112,10 +119,8 @@ function getDeathFrame(type: number): string {
  * Kill an actor
  */
 function killActor(target: Mobj, attacker?: Mobj): void {
-  // Award kill to attacker if it's the player
-  if (attacker?.player && target.flags & MobjFlags.COUNTKILL) {
-    // TODO: Increment kill counter when we have stats tracking
-    console.log(`Player killed ${target.type}!`);
+  if (attacker?.player && (target.flags & MobjFlags.COUNTKILL)) {
+    onPlayerCountedKill?.();
   }
 
   // Remove shootable flag

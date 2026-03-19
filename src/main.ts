@@ -17,10 +17,10 @@ import { createPlayerMobj, type Mobj, MobjFlags, ThinkerManager, TriggerSystem, 
 import { movePlayer, applyFriction, applyGravity, applyZMomentum, calculateViewZ, applyCollision } from './physics';
 import type { MapData } from './level';
 import { DoorManager, PlatformManager } from './sectors';
-import { StatusBar, TitleScreen, BorderFrame, MainMenu, type PlayerStats } from './ui';
+import { StatusBar, TitleScreen, BorderFrame, MainMenu, IntermissionScreen, type PlayerStats, type IntermissionStats } from './ui';
 import { createPlayerWeapon, updateWeapon, fireWeapon, WeaponType, performHitscan, WEAPON_INFO, switchPlayerWeapon, canPlayerUseWeapon, consumeWeaponAmmo } from './weapons/WeaponSystem';
 import { spawnPlayerProjectile } from './weapons/projectiles';
-import { damageActor, gunshotPelletDamage, punchDamage, chainsawDamage } from './game/Damage';
+import { damageActor, gunshotPelletDamage, punchDamage, chainsawDamage, setPlayerCountedKillHook } from './game/Damage';
 import { tryPickupItem, checkItemCollision } from './game/Pickups';
 import { updateMonster } from './ai';
 import { MusicPlayer, SoundManager } from './audio';
@@ -74,6 +74,20 @@ class DoomGame {
   private weaponFlashUntilTick: number = 0;
   /** ST_Ticker `st_oldhealth`: health at end of previous gametic. */
   private playerHealthAtLastTickEnd: number = 100;
+
+  private sessionWad?: Awaited<ReturnType<typeof loadWAD>>;
+  private sessionPalette?: Uint8Array;
+  private sessionColormap?: Uint8Array;
+  private sessionRgbaPalette?: Uint8ClampedArray;
+  private mapList: string[] = [];
+  private currentMapName: string = '';
+  private gameSkill: number = 3;
+  private levelTransitioning: boolean = false;
+  private levelKills: number = 0;
+  private levelItems: number = 0;
+  private levelMaxKills: number = 0;
+  private levelMaxItems: number = 0;
+  private levelMaxSecrets: number = 0;
 
   constructor() {
     // Initialize trigonometry tables
@@ -137,7 +151,151 @@ class DoomGame {
 
     // Update info
     this.updateInfo('DOOM three.js - Loading...');
+
+    window.addEventListener('keydown', this.onGameplayKeydown);
   }
+
+  private onGameplayKeydown = (e: KeyboardEvent): void => {
+    void this.musicPlayer?.activate();
+
+    if (this.levelTransitioning) return;
+
+    if (this.playerDied) {
+      if (e.code === 'KeyR') {
+        window.location.reload();
+      }
+      return;
+    }
+
+    if (e.code === 'KeyF') {
+      this.useOrbitControls = !this.useOrbitControls;
+      this.controls.enabled = this.useOrbitControls;
+      if (!this.useOrbitControls && this.playerMobj) {
+        this.inputManager.requestPointerLock();
+        this.infoElement.style.display = 'none';
+      }
+      console.log(`${this.useOrbitControls ? 'Orbit controls' : 'First-person mode'} enabled`);
+    } else if (e.code.startsWith('Digit') && this.playerMobj?.player?.weapon) {
+      const digit = parseInt(e.code.substring(5), 10);
+      const mobj = this.playerMobj;
+      if (!mobj.player) return;
+      if (digit === 1) {
+        const p = mobj.player;
+        const w = p.weapon!;
+        if (
+          p.weapons[WeaponType.CHAINSAW] &&
+          !(w.currentWeapon === WeaponType.CHAINSAW && (p.powerups.berserk ?? 0) !== 0)
+        ) {
+          switchPlayerWeapon(mobj, WeaponType.CHAINSAW);
+        } else {
+          switchPlayerWeapon(mobj, WeaponType.FIST);
+        }
+      } else if (digit >= 2 && digit <= 7) {
+        switchPlayerWeapon(mobj, (digit - 1) as WeaponType);
+      } else if (digit === 8 && mobj.player.weapons[WeaponType.SUPER_SHOTGUN]) {
+        switchPlayerWeapon(mobj, WeaponType.SUPER_SHOTGUN);
+      }
+    }
+  };
+
+  private initLevelKillItemTotals(): void {
+    this.levelKills = 0;
+    this.levelItems = 0;
+    this.levelMaxKills = 0;
+    this.levelMaxItems = 0;
+    this.levelMaxSecrets = 0;
+    if (!this.mapData) return;
+
+    for (const s of this.mapData.sectors) {
+      if (s.special === 9) this.levelMaxSecrets++;
+    }
+    for (const m of this.thinkerManager.getAllMobjs()) {
+      if (m.countsTowardKill) this.levelMaxKills++;
+      if (m.countsTowardItem) this.levelMaxItems++;
+    }
+  }
+
+  private getNextMapName(current: string): string | null {
+    const u = current.toUpperCase();
+    const idx = this.mapList.indexOf(u);
+    if (idx < 0 || idx + 1 >= this.mapList.length) return null;
+    return this.mapList[idx + 1] ?? null;
+  }
+
+  private teardownPlaySession(): void {
+    setPlayerCountedKillHook(undefined);
+    this.ticker?.stop();
+    this.ticker = undefined;
+    this.thinkerManager.clear();
+    this.triggerSystem = undefined;
+    this.doorManager = undefined;
+    this.platformManager = undefined;
+    this.playerMobj = undefined;
+    this.mapData = undefined;
+
+    if (this.levelRenderer) {
+      this.levelRenderer.dispose();
+      this.levelRenderer = undefined;
+    }
+
+    if (this.borderFrame && this.viewContainer) {
+      const c = this.borderFrame.getCanvas();
+      if (c.parentNode === this.viewContainer) {
+        this.viewContainer.removeChild(c);
+      }
+      this.borderFrame = undefined;
+    }
+
+    this.statusBar?.dispose();
+    this.statusBar = undefined;
+    this.weaponRenderer = undefined;
+
+    this.visitedSecretSectors.clear();
+    this.sectorBaseLightLevels = [];
+    this.levelTime = 0;
+    this.previousButtons = 0;
+  }
+
+  private handleLevelExit = (): void => {
+    if (this.levelTransitioning || !this.sessionWad || !this.sessionRgbaPalette) return;
+
+    this.levelTransitioning = true;
+    this.ticker?.stop();
+    setPlayerCountedKillHook(undefined);
+    void document.exitPointerLock();
+    this.musicPlayer?.stop();
+
+    if (this.gameContainer) this.gameContainer.style.visibility = 'hidden';
+
+    const stats: IntermissionStats = {
+      kills: this.levelKills,
+      maxKills: this.levelMaxKills,
+      items: this.levelItems,
+      maxItems: this.levelMaxItems,
+      secrets: this.visitedSecretSectors.size,
+      maxSecrets: this.levelMaxSecrets,
+      timeTics: this.levelTime,
+    };
+    const next = this.getNextMapName(this.currentMapName);
+
+    const intermission = new IntermissionScreen(this.sessionWad, this.sessionRgbaPalette, {
+      finishedMap: this.currentMapName,
+      nextMap: next,
+      stats,
+      onContinue: () => {
+        if (this.gameContainer) this.gameContainer.style.visibility = 'visible';
+        this.levelTransitioning = false;
+
+        if (next && this.sessionPalette && this.sessionColormap && this.sessionRgbaPalette) {
+          void this.loadLevel(this.sessionWad!, this.sessionPalette, this.sessionColormap, this.sessionRgbaPalette, next, this.gameSkill);
+        } else {
+          this.updateInfo('Episode or WAD complete. Refresh the page to play again.');
+          this.infoElement.style.display = 'block';
+        }
+      },
+    });
+    intermission.show();
+  };
 
   /**
    * Update renderer size maintaining 4:3 aspect ratio
@@ -359,6 +517,12 @@ class DoomGame {
       const colormap = PaletteLoader.loadColormap(colormapData);
       const rgbaPalette = PaletteLoader.paletteToRGBA(palette, 255);
 
+      this.sessionWad = wad;
+      this.sessionPalette = palette;
+      this.sessionColormap = colormap;
+      this.sessionRgbaPalette = rgbaPalette;
+      this.mapList = wad.findMapLumps();
+
       // Create audio for menu/splash (before level load)
       this.soundManager = new SoundManager(wad);
       this.musicPlayer = new MusicPlayer(wad);
@@ -416,12 +580,20 @@ class DoomGame {
     skill: number = 3
   ): Promise<void> {
     try {
+      if (this.levelRenderer) {
+        this.teardownPlaySession();
+      }
+
       const mapLumps = wad.getMapLumps(mapName);
       if (!mapLumps) {
         throw new Error(`Map ${mapName} not found`);
       }
 
       this.updateInfo(`Parsing ${mapName}...`);
+
+      this.playerDied = false;
+      this.currentMapName = mapName;
+      this.gameSkill = skill;
 
       this.mapData = MapParser.parseMap(mapName, mapLumps, wad);
       console.log(`Parsed ${mapName}`);
@@ -455,7 +627,12 @@ class DoomGame {
         this.mapData,
         (sectorIndex, oldHeight, newHeight) => this.levelRenderer?.updateSectorFloor(sectorIndex, oldHeight, newHeight)
       );
-      this.triggerSystem = new TriggerSystem(this.mapData, this.doorManager, this.platformManager);
+      this.triggerSystem = new TriggerSystem(
+        this.mapData,
+        this.doorManager,
+        this.platformManager,
+        this.handleLevelExit
+      );
 
       // Continue with level building
 
@@ -465,6 +642,10 @@ class DoomGame {
       // Build level geometry (async - loads textures)
       await this.levelRenderer.buildLevel();
       this.spawnMapThings(skill);
+      this.initLevelKillItemTotals();
+      setPlayerCountedKillHook(() => {
+        this.levelKills++;
+      });
 
       // Create player mobj at player start
       const playerStart = this.levelRenderer.getPlayerStart();
@@ -511,48 +692,6 @@ class DoomGame {
       if (this.playerMobj) {
         this.inputManager.requestPointerLock();
       }
-
-      // Add key listeners
-      window.addEventListener('keydown', (e) => {
-        void this.musicPlayer?.activate();
-
-        if (this.playerDied) {
-          if (e.code === 'KeyR') {
-            window.location.reload();
-          }
-          return;
-        }
-
-        if (e.code === 'KeyF') {
-          this.useOrbitControls = !this.useOrbitControls;
-          this.controls.enabled = this.useOrbitControls;
-          if (!this.useOrbitControls && this.playerMobj) {
-            this.inputManager.requestPointerLock();
-            this.infoElement.style.display = 'none';
-          }
-          console.log(`${this.useOrbitControls ? 'Orbit controls' : 'First-person mode'} enabled`);
-        } else if (e.code.startsWith('Digit') && this.playerMobj?.player?.weapon) {
-          const digit = parseInt(e.code.substring(5), 10);
-          const mobj = this.playerMobj;
-          if (!mobj.player) return;
-          if (digit === 1) {
-            const p = mobj.player;
-            const w = p.weapon!;
-            if (
-              p.weapons[WeaponType.CHAINSAW] &&
-              !(w.currentWeapon === WeaponType.CHAINSAW && (p.powerups.berserk ?? 0) !== 0)
-            ) {
-              switchPlayerWeapon(mobj, WeaponType.CHAINSAW);
-            } else {
-              switchPlayerWeapon(mobj, WeaponType.FIST);
-            }
-          } else if (digit >= 2 && digit <= 7) {
-            switchPlayerWeapon(mobj, (digit - 1) as WeaponType);
-          } else if (digit === 8 && mobj.player.weapons[WeaponType.SUPER_SHOTGUN]) {
-            switchPlayerWeapon(mobj, WeaponType.SUPER_SHOTGUN);
-          }
-        }
-      });
     } catch (error) {
       console.error('Error initializing game:', error);
       this.updateInfo(`Error: ${error}`);
@@ -616,6 +755,7 @@ class DoomGame {
         const result = tryPickupItem(item, this.playerMobj);
         if (result.success) {
           this.soundManager?.play('pickup', 0.35);
+          if (item.countsTowardItem) this.levelItems++;
         }
       }
     }
@@ -846,6 +986,7 @@ class DoomGame {
     for (let i = 0; i < this.mapData.linedefs.length; i++) {
       const line = this.mapData.linedefs[i];
       if (line.special === 0) continue;
+      if (!this.triggerSystem.isUseActivatableSpecial(line.special)) continue;
 
       const v1 = this.mapData.vertexes[line.v1];
       const v2 = this.mapData.vertexes[line.v2];
@@ -877,9 +1018,6 @@ class DoomGame {
         this.soundManager?.play('switch', 0.3);
         if (special === 1) {
           this.soundManager?.play('doorOpen', 0.35);
-        } else if (special === 11) {
-          this.updateInfo(`${this.mapData?.name ?? 'Level'} complete. Exit switch activated.`);
-          this.ticker?.stop();
         }
       }
     }
