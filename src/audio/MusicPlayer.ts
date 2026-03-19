@@ -92,6 +92,38 @@ export class MusicPlayer {
     this.wad = wad;
   }
 
+  prepareIntroMusic(): boolean {
+    const lumpName = 'D_INTRO';
+    if (!this.wad.hasLump(lumpName)) {
+      return false;
+    }
+
+    if (this.preparedLumpName === lumpName) {
+      return true;
+    }
+
+    const musData = this.wad.readLump(lumpName);
+    if (!musData) {
+      return false;
+    }
+
+    const midiData = MusicDecoder.decodeMusToMidi(musData, lumpName);
+    if (!midiData) {
+      return false;
+    }
+
+    const synth = this.ensureSynth();
+    if (!synth) {
+      return false;
+    }
+
+    synth.stopMIDI();
+    synth.loadMIDI(midiData);
+    synth.setLoop(1);
+    this.preparedLumpName = lumpName;
+    return true;
+  }
+
   prepareMapMusic(mapName: string): boolean {
     const lumpName = resolveMapMusicLump(this.wad, mapName);
     if (!lumpName) {

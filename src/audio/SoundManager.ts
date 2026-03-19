@@ -5,7 +5,7 @@ type CachedSound = AudioBuffer;
 const SOUND_LUMPS: Record<string, string> = {
   pistol: 'DSPISTOL',
   shotgun: 'DSSHOTGN',
-  chaingun: 'DSPISTOL',
+  chaingun: 'DSCHGUN',
   rocket: 'DSRLAUNC',
   pickup: 'DSITEMUP',
   weaponup: 'DSWPNUP',
@@ -19,7 +19,7 @@ const SOUND_LUMPS: Record<string, string> = {
   playerPain: 'DSPLPAIN',
   monsterDeath: 'DSPODTH1',
   zombieDeath: 'DSPODTH1',
-  shotgunGuyDeath: 'DSSGTDTH',
+  shotgunGuyDeath: 'DSPODTH2',
   impDeath: 'DSBGDTH1',
   demonDeath: 'DSSGTDTH',
   barrel: 'DSBAREXP',

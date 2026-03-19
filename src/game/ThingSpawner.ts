@@ -8,7 +8,7 @@ import type { MapThing, MapData } from '../level/types';
 import type { Mobj } from './mobj';
 import { IntToFixed, DegreesToAngle } from '../core';
 import { getThingInfo } from './thinginfo';
-import { findSectorAtPoint, MTF_AMBUSH, MTF_HARD } from '../level';
+import { findSectorAtPoint, MTF_AMBUSH, MTF_EASY, MTF_MEDIUM, MTF_HARD } from '../level';
 import { MobjFlags } from './mobj';
 
 export interface SpawnedThing {
@@ -21,8 +21,17 @@ export interface SpawnedThing {
   lightLevel: number;
 }
 
-/** Skill level bit for filtering (MTF_HARD = skill 3 / medium) */
-const SKILL_BIT = MTF_HARD;
+/** Map skill 1-5 to MTF bits for thing filtering (doomdef.h, p_mobj.c) */
+function getSkillBitMask(skill: number): number {
+  switch (skill) {
+    case 1: return MTF_EASY;
+    case 2: return MTF_EASY | MTF_MEDIUM;
+    case 3: return MTF_EASY | MTF_MEDIUM | MTF_HARD;
+    case 4:
+    case 5: return MTF_EASY | MTF_MEDIUM | MTF_HARD; // UV and Nightmare: all
+    default: return MTF_EASY | MTF_MEDIUM | MTF_HARD;
+  }
+}
 
 export class ThingSpawner {
   private spawnedThings: SpawnedThing[];
@@ -35,12 +44,13 @@ export class ThingSpawner {
    * Spawn all things from map data
    * Matches DOOM skill filtering: p_mobj.c P_SpawnMapThing
    * @param mapData - Map data containing THINGS lump
+   * @param skill - Skill level 1-5 (I'm Too Young To Die -> Nightmare!)
    * @returns Array of spawned things (excluding player starts)
    */
-  spawnThings(mapData: MapData): SpawnedThing[] {
+  spawnThings(mapData: MapData, skill: number = 3): SpawnedThing[] {
     this.spawnedThings = [];
 
-    const skillBit = SKILL_BIT;
+    const skillBit = getSkillBitMask(skill);
 
     for (const thing of mapData.things) {
       // Skip deathmatch starts (type 11)

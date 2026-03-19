@@ -17,7 +17,7 @@ import { createPlayerMobj, type Mobj, MobjFlags, ThinkerManager, TriggerSystem, 
 import { movePlayer, applyFriction, applyGravity, applyZMomentum, calculateViewZ, applyCollision } from './physics';
 import type { MapData } from './level';
 import { DoorManager, PlatformManager } from './sectors';
-import { StatusBar, TitleScreen, BorderFrame, type PlayerStats } from './ui';
+import { StatusBar, TitleScreen, BorderFrame, MainMenu, type PlayerStats } from './ui';
 import { createPlayerWeapon, updateWeapon, fireWeapon, WeaponType, performHitscan, WEAPON_INFO, switchPlayerWeapon, canPlayerUseWeapon, consumeWeaponAmmo } from './weapons/WeaponSystem';
 import { damageActor, WeaponDamage } from './game/Damage';
 import { tryPickupItem, checkItemCollision } from './game/Pickups';
@@ -236,13 +236,13 @@ class DoomGame {
     }
   }
 
-  private spawnMapThings(): void {
+  private spawnMapThings(skill: number = 3): void {
     if (!this.mapData) {
       return;
     }
 
     const spawner = new ThingSpawner();
-    const spawnedThings = spawner.spawnThings(this.mapData);
+    const spawnedThings = spawner.spawnThings(this.mapData, skill);
 
     for (const spawned of spawnedThings) {
       const thinker = spawned.mobj.countsTowardKill
@@ -351,61 +351,79 @@ class DoomGame {
     try {
       this.updateInfo('Loading WAD file...');
 
-      // Load WAD
       const wad = await loadWAD('/DOOM.WAD');
       console.log('WAD loaded successfully');
 
-      // Load palette
       const playpalData = wad.readLump('PLAYPAL');
-      if (!playpalData) {
-        throw new Error('PLAYPAL not found');
-      }
+      if (!playpalData) throw new Error('PLAYPAL not found');
       const palette = PaletteLoader.loadPalette(playpalData);
       const colormapData = wad.readLump('COLORMAP');
-      if (!colormapData) {
-        throw new Error('COLORMAP not found');
-      }
+      if (!colormapData) throw new Error('COLORMAP not found');
       const colormap = PaletteLoader.loadColormap(colormapData);
       const rgbaPalette = PaletteLoader.paletteToRGBA(palette, 255);
 
-      // Show title screen first (original DOOM flow: GS_DEMOSCREEN)
-      const titleScreen = new TitleScreen(wad, rgbaPalette, () => {
-        titleScreen.hide();
-        void this.loadLevel(wad, palette, colormap, rgbaPalette);
-      });
+      // Create audio for menu/splash (before level load)
+      this.soundManager = new SoundManager(wad);
+      this.musicPlayer = new MusicPlayer(wad);
+
+      const titleScreen = new TitleScreen(
+        wad,
+        rgbaPalette,
+        () => {
+          titleScreen.hide();
+          this.showMainMenu(wad, palette, colormap, rgbaPalette);
+        },
+        () => {
+          this.musicPlayer?.prepareIntroMusic();
+          void this.musicPlayer?.activate();
+        }
+      );
       await titleScreen.init();
       titleScreen.show();
       titleScreen.startRenderLoop();
-      this.updateInfo('Press any key or click to start');
-
-      // Wait for user to dismiss title before loading level
-      return;
+      this.updateInfo('');
     } catch (error) {
       console.error('Error initializing game:', error);
       this.updateInfo(`Error: ${error}`);
     }
   }
 
-  private async loadLevel(
+  private showMainMenu(
     wad: Awaited<ReturnType<typeof loadWAD>>,
     palette: Uint8Array,
     colormap: Uint8Array,
     rgbaPalette: Uint8ClampedArray
+  ): void {
+    const mainMenu = new MainMenu(wad, rgbaPalette, {
+      onStartGame: (episode: number, skill: number) => {
+        mainMenu.hide();
+        this.musicPlayer?.stop();
+        const mapName = `E${episode}M1`;
+        void this.loadLevel(wad, palette, colormap, rgbaPalette, mapName, skill);
+      },
+      onMenuSound: () => this.soundManager?.play('switch', 0.3),
+    });
+    mainMenu.init().then(() => {
+      mainMenu.show();
+      mainMenu.startRenderLoop();
+    });
+  }
+
+  private async loadLevel(
+    wad: Awaited<ReturnType<typeof loadWAD>>,
+    palette: Uint8Array,
+    colormap: Uint8Array,
+    rgbaPalette: Uint8ClampedArray,
+    mapName: string,
+    skill: number = 3
   ): Promise<void> {
     try {
-      const maps = wad.findMapLumps();
-      if (maps.length === 0) {
-        throw new Error('No maps found in WAD');
-      }
-
-      const mapName = maps[0];
-      this.updateInfo(`Parsing ${mapName}...`);
-
-      // Parse map
       const mapLumps = wad.getMapLumps(mapName);
       if (!mapLumps) {
         throw new Error(`Map ${mapName} not found`);
       }
+
+      this.updateInfo(`Parsing ${mapName}...`);
 
       this.mapData = MapParser.parseMap(mapName, mapLumps, wad);
       console.log(`Parsed ${mapName}`);
@@ -427,11 +445,10 @@ class DoomGame {
         this.viewContainer.appendChild(borderCanvas);
         borderFrame.render();
       }
-      this.soundManager = new SoundManager(wad);
-      this.musicPlayer = new MusicPlayer(wad);
+      // soundManager and musicPlayer created in init()
       await this.statusBar.init();
       this.sectorBaseLightLevels = this.mapData.sectors.map((sector) => sector.lightlevel);
-      this.musicPlayer.prepareMapMusic(mapName);
+      this.musicPlayer?.prepareMapMusic(mapName);
 
       // Initialize sector managers with renderer callbacks
       this.doorManager = new DoorManager(
@@ -451,7 +468,7 @@ class DoomGame {
 
       // Build level geometry (async - loads textures)
       await this.levelRenderer.buildLevel();
-      this.spawnMapThings();
+      this.spawnMapThings(skill);
 
       // Create player mobj at player start
       const playerStart = this.levelRenderer.getPlayerStart();
@@ -662,7 +679,6 @@ class DoomGame {
         keys: this.playerMobj.player.keys,
         weapons: this.playerMobj.player.weapons,
         currentWeapon: this.playerMobj.player.weapon?.currentWeapon || 0,
-        face: this.playerMobj.health > 75 ? 0 : this.playerMobj.health > 40 ? 1 : 2,
         message: this.playerMobj.player.message,
       };
       this.statusBar.render(stats);

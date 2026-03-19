@@ -2,10 +2,14 @@
  * Title Screen
  * Shows TITLEPIC splash on first load, matching original DOOM flow
  * Based on linuxdoom-1.10/d_main.c D_PageDrawer, GS_DEMOSCREEN
+ * pagetic=170 tics, key/mouse -> main menu, timeout -> menu (demo skipped for scope)
  */
 
 import type { WADReader } from '../wad';
 import { PatchDecoder } from '../graphics';
+
+const PAGETIC = 170; // Original DOOM: 170 tics at 35 Hz
+const TICRATE = 35;
 
 export class TitleScreen {
   private canvas: HTMLCanvasElement;
@@ -13,12 +17,22 @@ export class TitleScreen {
   private wad: WADReader;
   private palette: Uint8ClampedArray;
   private titlePatch?: HTMLCanvasElement;
-  private onDismiss: () => void;
+  private onShowMenu: () => void;
+  private onShow?: () => void;
+  private pagetic: number = PAGETIC;
+  private lastTickTime: number = 0;
+  private dismissed: boolean = false;
 
-  constructor(wad: WADReader, palette: Uint8ClampedArray, onDismiss: () => void) {
+  constructor(
+    wad: WADReader,
+    palette: Uint8ClampedArray,
+    onShowMenu: () => void,
+    onShow?: () => void
+  ) {
     this.wad = wad;
     this.palette = palette;
-    this.onDismiss = onDismiss;
+    this.onShowMenu = onShowMenu;
+    this.onShow = onShow;
 
     this.canvas = document.createElement('canvas');
     this.canvas.width = 320;
@@ -36,9 +50,11 @@ export class TitleScreen {
     this.ctx = this.canvas.getContext('2d')!;
 
     const handleInput = () => {
+      if (this.dismissed) return;
+      this.dismissed = true;
       this.canvas.removeEventListener('click', handleInput);
       window.removeEventListener('keydown', handleKey);
-      this.onDismiss();
+      this.onShowMenu();
     };
 
     const handleKey = (e: KeyboardEvent) => {
@@ -74,6 +90,10 @@ export class TitleScreen {
     document.body.appendChild(this.canvas);
     this.updateCanvasScale();
     window.addEventListener('resize', () => this.updateCanvasScale());
+    this.pagetic = PAGETIC;
+    this.lastTickTime = performance.now();
+    this.dismissed = false;
+    this.onShow?.();
   }
 
   private updateCanvasScale(): void {
@@ -100,10 +120,19 @@ export class TitleScreen {
       this.ctx.drawImage(this.titlePatch, x, y);
     }
 
-    this.ctx.fillStyle = '#808080';
-    this.ctx.font = 'bold 8px monospace';
-    this.ctx.textAlign = 'center';
-    this.ctx.fillText('Press any key or click to start', 160, 190);
+    // Auto-advance: 170 tics at 35 Hz (original D_PageTicker)
+    const now = performance.now();
+    const elapsed = (now - this.lastTickTime) / 1000;
+    const ticsElapsed = Math.floor(elapsed * TICRATE);
+    if (ticsElapsed > 0) {
+      this.pagetic -= ticsElapsed;
+      this.lastTickTime = now;
+      if (this.pagetic <= 0 && !this.dismissed) {
+        this.dismissed = true;
+        this.onShowMenu();
+        return;
+      }
+    }
   }
 
   hide(): void {

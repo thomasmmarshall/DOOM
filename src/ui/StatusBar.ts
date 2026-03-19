@@ -7,6 +7,9 @@
 import type { WADReader } from '../wad';
 import { PatchDecoder } from '../graphics';
 
+/** Original st_stuff.c: 5 pain levels */
+const ST_NUMPAINFACES = 5;
+
 /**
  * Player stats for HUD display
  */
@@ -25,7 +28,7 @@ export interface PlayerStats {
   };
   weapons: boolean[]; // Index corresponds to weapon number
   currentWeapon: number;
-  face: number; // Face state (0-42, different expressions)
+  face?: number; // Deprecated: computed from health if not provided
   message?: string;
 }
 
@@ -36,7 +39,8 @@ export class StatusBar {
   private palette: Uint8ClampedArray;
   private numberPatches: HTMLCanvasElement[] = [];
   private statusBarPatch?: HTMLCanvasElement;
-  private facePatches: HTMLCanvasElement[] = [];
+  private facePatches: Map<number, HTMLCanvasElement> = new Map(); // pain level 0-4 + dead
+  private keyPatches: HTMLCanvasElement[] = []; // STKEYS0-5
   private initialized: boolean = false;
 
   constructor(wad: WADReader, palette: Uint8ClampedArray, parent?: HTMLElement) {
@@ -114,10 +118,11 @@ export class StatusBar {
       }
     }
 
-    for (const lumpName of ['STFST00', 'STFST10', 'STFDEAD0']) {
-      const lumpData = this.wad.readLump(lumpName);
+    // Face patches: STFST00 (80-100%), STFST10 (60-79%), STFST20 (40-59%), STFST30 (20-39%), STFST40 (1-19%), STFDEAD0 (dead)
+    const faceNames = ['STFST00', 'STFST10', 'STFST20', 'STFST30', 'STFST40', 'STFDEAD0'];
+    for (let i = 0; i < faceNames.length; i++) {
+      const lumpData = this.wad.readLump(faceNames[i]);
       if (!lumpData) continue;
-
       try {
         const decoded = PatchDecoder.decodePatch(lumpData, this.palette);
         const canvas = document.createElement('canvas');
@@ -127,9 +132,28 @@ export class StatusBar {
         const imageData = ctx.createImageData(decoded.width, decoded.height);
         imageData.data.set(decoded.pixels);
         ctx.putImageData(imageData, 0, 0);
-        this.facePatches.push(canvas);
+        this.facePatches.set(i, canvas);
       } catch (error) {
-        console.warn(`Failed to load face patch ${lumpName}:`, error);
+        console.warn(`Failed to load face patch ${faceNames[i]}:`, error);
+      }
+    }
+
+    // Key patches: STKEYS0-5 (blue/yellow/red card, blue/yellow/red skull)
+    for (let i = 0; i <= 5; i++) {
+      const lumpData = this.wad.readLump(`STKEYS${i}`);
+      if (!lumpData) continue;
+      try {
+        const decoded = PatchDecoder.decodePatch(lumpData, this.palette);
+        const canvas = document.createElement('canvas');
+        canvas.width = decoded.width;
+        canvas.height = decoded.height;
+        const ctx = canvas.getContext('2d')!;
+        const imageData = ctx.createImageData(decoded.width, decoded.height);
+        imageData.data.set(decoded.pixels);
+        ctx.putImageData(imageData, 0, 0);
+        this.keyPatches[i] = canvas;
+      } catch (error) {
+        console.warn(`Failed to load key patch STKEYS${i}:`, error);
       }
     }
 
@@ -188,31 +212,32 @@ export class StatusBar {
       this.ctx.fillRect(0, 0, 320, 32);
     }
 
-    // Match the original STBAR layout instead of drawing extra labels on top.
+    // Original positions: ST_AMMOX=44, ST_HEALTHX=90, ST_ARMORX=221, ST_AMMOY/HEALTHY/ARMORY=171
     this.drawNumberRightAligned(Math.max(0, stats.ammo), 43, 2, 3);
     this.drawNumberRightAligned(Math.max(0, stats.health), 95, 2, 3);
     this.drawNumberRightAligned(Math.max(0, stats.armor), 221, 2, 3);
 
-    const face = this.facePatches[Math.min(this.facePatches.length - 1, Math.max(0, stats.face))];
+    // Face: ST_calcPainOffset - 5 pain levels by health (st_stuff.c)
+    const health = Math.min(100, Math.max(0, stats.health));
+    const faceIndex = health <= 0 ? 5 : Math.min(4, Math.floor(((100 - health) * ST_NUMPAINFACES) / 101));
+    const face = this.facePatches.get(faceIndex) ?? this.facePatches.get(0);
     if (face) {
       this.ctx.drawImage(face, 143, 1);
     }
 
-    // Keys indicator (bottom right) - simple colored squares for now
-    let keyX = 239;
-    if (stats.keys.blueCard || stats.keys.blueSkull) {
-      this.ctx.fillStyle = '#0000ff';
-      this.ctx.fillRect(keyX, 4, 8, 5);
-      keyX += 10;
-    }
-    if (stats.keys.yellowCard || stats.keys.yellowSkull) {
-      this.ctx.fillStyle = '#ffff00';
-      this.ctx.fillRect(keyX, 4, 8, 5);
-      keyX += 10;
-    }
-    if (stats.keys.redCard || stats.keys.redSkull) {
-      this.ctx.fillStyle = '#ff0000';
-      this.ctx.fillRect(keyX, 4, 8, 5);
+    // Keys: ST_KEY0X=239, ST_KEY1X=239, ST_KEY2X=239; ST_KEY0Y=171, ST_KEY1Y=181, ST_KEY2Y=191 (relative to 32px bar: 3, 13, 23)
+    const keySlots = [
+      stats.keys.blueCard ? 0 : stats.keys.blueSkull ? 3 : -1,
+      stats.keys.yellowCard ? 1 : stats.keys.yellowSkull ? 4 : -1,
+      stats.keys.redCard ? 2 : stats.keys.redSkull ? 5 : -1,
+    ];
+    const keyX = 239;
+    const keyY = [3, 13, 23];
+    for (let i = 0; i < 3; i++) {
+      const idx = keySlots[i];
+      if (idx >= 0 && this.keyPatches[idx]) {
+        this.ctx.drawImage(this.keyPatches[idx], keyX, keyY[i]);
+      }
     }
 
     if (stats.message) {

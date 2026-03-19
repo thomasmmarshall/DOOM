@@ -6,3 +6,4 @@
 export * from './StatusBar';
 export * from './TitleScreen';
 export * from './BorderFrame';
+export * from './MainMenu';
