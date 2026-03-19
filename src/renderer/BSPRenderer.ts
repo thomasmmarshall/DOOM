@@ -4,8 +4,9 @@
  * Based on linuxdoom-1.10/r_bsp.c
  */
 
-import type { MapData, MapNode } from '../level/types';
+import type { MapData } from '../level/types';
 import { NF_SUBSECTOR } from '../level/types';
+import { pointOnBspNode } from '../level/sectorUtils';
 
 export class BSPRenderer {
   private mapData: MapData;
@@ -64,7 +65,7 @@ export class BSPRenderer {
     }
 
     const node = this.mapData.nodes[nodeIndex];
-    const side = this.pointOnSide(x, y, node);
+    const side = pointOnBspNode(x, y, node);
 
     // Traverse near side first (front-to-back)
     this.traverseNode(node.children[side], x, y);
@@ -72,27 +73,6 @@ export class BSPRenderer {
     // Check if we should traverse far side
     // For now, always traverse both sides (we'll add frustum culling later)
     this.traverseNode(node.children[side ^ 1], x, y);
-  }
-
-  /**
-   * Determine which side of a BSP partition line a point is on
-   * @param x - Point X
-   * @param y - Point Y
-   * @param node - BSP node with partition line
-   * @returns 0 for front/right side, 1 for back/left side
-   */
-  private pointOnSide(x: number, y: number, node: MapNode): number {
-    // Calculate which side of the partition line the point is on
-    // Line equation: (x - node.x) * node.dy - (y - node.y) * node.dx
-    // If result > 0, point is on front side; otherwise back side
-
-    const dx = x - node.x;
-    const dy = y - node.y;
-
-    // Cross product to determine side
-    const cross = dx * node.dy - dy * node.dx;
-
-    return cross <= 0 ? 0 : 1;
   }
 
   /**

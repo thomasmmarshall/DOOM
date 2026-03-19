@@ -1,189 +1,60 @@
-# DOOM three.js
+# DOOM · Three.js · TypeScript
 
-A modern reimplementation of DOOM (1993) using three.js and TypeScript. This project preserves DOOM's exact gameplay mechanics, deterministic behavior, and game logic while replacing the software renderer with a WebGL-based 3D engine.
+A **DOOM-style engine in the browser**: not a port line-by-line, but a **gradual rebuild** inspired by id’s original DOOM source. It loads **real IWAD data**—levels, textures, flats, palette—through a proper **WAD pipeline**, and draws everything with **Three.js** while the simulation runs in **TypeScript**.
 
-## Project Status
+The goal is the same game *under the hood* (fixed math, tic timing, movement, BSP visibility, etc.) with a **modern WebGL renderer** instead of the classic software renderer.
 
-**Current Phase**: Phase 5 - Sprite Rendering
+## Status
 
-### Completed Phases
+Core loop and mechanics are in place and **playable**; the project is still **rough in places**—expect bugs and incomplete features. Sprites, AI, doors, audio polish, and UI are ongoing or planned; see `REMAINING_FEATURES_PLAN.md` and `CURRENT_ISSUES.md` if you want detail.
 
-- ✅ **Phase 0**: Foundation & Data Pipeline
-  - TypeScript + Vite + three.js project setup
-  - Module structure (core, wad, level, graphics, renderer, etc.)
-  - WAD file parser (header, directory, lump lookup)
-  - Map data parsers (VERTEXES, LINEDEFS, SIDEDEFS, SECTORS, THINGS, BSP data, BLOCKMAP)
-  - Palette & colormap loaders (PLAYPAL, COLORMAP)
-  - Patch decoder (column-based format with transparency)
-  - Flat loader (64x64 floor/ceiling textures)
-  - Vitest testing framework
+## How it’s built
 
-- ✅ **Phase 1**: Static Geometry Rendering
-  - Coordinate system conversion (DOOM → three.js)
-  - Wall geometry builder (one-sided and two-sided walls)
-  - Sector geometry builder (floors and ceilings with triangulation)
-  - Texture manager (wall textures and flats)
-  - Material system with light level support
-  - Sky rendering
-  - Level renderer
-  - E1M1 fully rendered with orbit controls
+Development has been **heavily AI-assisted**: **Claude Code** and **Cursor** for exploration and refactors; **Cursor Composer** (especially the fast model) has been standout for iterating quickly on TypeScript and renderer work. The architecture and tradeoffs are still grounded in the **original DOOM code** and community references—the LLMs accelerate implementation; they don’t replace reading the source.
 
-- ✅ **Phase 2**: Core Game Loop & Math
-  - Fixed-point arithmetic (16.16 format) with FixedMul/FixedDiv
-  - Trigonometry tables (finesine, finecosine, finetangent)
-  - Binary Angle Measurement (BAM) system
-  - 35 Hz game ticker with deterministic timing
-  - Input manager (keyboard, mouse)
-  - TicCmd structure for input buffering
+**Stack:** Vite · TypeScript · Three.js · Vitest · shareware `DOOM.WAD` in `public/` (replace with your own IWAD as needed).
 
-- ✅ **Phase 3**: Player Movement & Physics
-  - Map object (mobj) structure with physics properties
-  - Player movement with thrust-based physics
-  - Friction and momentum application (FRICTION = 0xe800)
-  - Gravity implementation
-  - View height calculation with bobbing
-  - First-person camera integration
-  - Movement controls (WASD + mouse)
-  - Wall collision detection with sliding
-
-- ✅ **Phase 3.5**: Rendering & Spawn Fixes
-  - Point-in-polygon algorithm for sector detection
-  - Player spawns at correct sector floor height
-  - Proper collision boundaries (floorz/ceilingz) from sector data
-  - Fixed texture UV mapping with consistent tiling
-  - Improved lighting calculations for better visibility
-
-- ✅ **Phase 4**: BSP Rendering & Visibility
-  - BSP tree traversal from camera position
-  - Front-to-back node walking algorithm
-  - Visible subsector list generation
-  - Sector-based visibility culling
-  - Performance optimization with selective rendering
-
-### Next Steps
-- **Phase 5**: Sprite rendering (enemies, items, decorations)
-- Phase 6: AI and combat
-- Phase 7: Doors and sector effects
-
-## Quick Start
-
-**Already have the DOOM WAD included!** Just run:
+## Run it
 
 ```bash
 npm install
 npm run dev
 ```
 
-Then open your browser to http://localhost:5173
-
-See [QUICKSTART.md](QUICKSTART.md) for detailed controls and usage.
-
-## Controls
-
-- **F** - Toggle first-person mode
-- **P** - Start physics (enable movement)
-- **WASD** - Move (when physics active)
-- **Mouse** - Look around
-- **ESC** - Release mouse lock
-
-## Development
-
-### Prerequisites
-- Node.js 18+
-- Modern web browser
-
-### Setup
+Open the URL Vite prints (usually `http://localhost:5173`). For controls and behavior, see **[QUICKSTART.md](QUICKSTART.md)**.
 
 ```bash
-# Install dependencies
-npm install
-
-# Start development server
-npm run dev
-
-# Run tests
-npm test
+npm test          # Vitest
+npm run build     # production build
 ```
 
-The shareware DOOM WAD is included in `public/DOOM.WAD`. You can replace it with:
-- Full DOOM.WAD (registered version)
-- DOOM2.WAD (DOOM II)
-- Any compatible DOOM WAD file
-
-### Project Structure
+## Repo layout (high level)
 
 ```
 src/
-├── core/          # Fixed-point math, angles, game ticker
-├── wad/           # WAD file parser and lump management
-├── level/         # Map data structures, BSP tree, blockmap
-├── graphics/      # Texture/sprite/patch decoders, palette
-├── renderer/      # three.js geometry builder, materials, lighting
-├── game/          # Thinker system, map objects, player state
-├── physics/       # Movement, collision detection, line-of-sight
-├── ai/            # Enemy AI, pathfinding, combat
-├── weapons/       # Weapon systems, hitscan, projectiles
-├── sectors/       # Floors, ceilings, doors, platforms, lighting
-├── audio/         # Web Audio wrapper, DMX/MUS decoders
-├── ui/            # HUD, menus, automap, intermission
-└── input/         # Keyboard, mouse, gamepad handling
+  core/       fixed-point, angles, ticker
+  wad/        WAD parse & lumps
+  level/      map data, BSP, blockmap
+  graphics/   patches, flats, palette
+  renderer/   Three.js geometry, materials, culling
+  game/       thinkers, mobjs, player
+  physics/    movement, collision
+  input/      keyboard & mouse
+  …           ai, weapons, sectors, audio, ui (various stages)
 ```
 
-## Implementation Plan
+## Technical notes
 
-This project follows a 30-week phased implementation:
-
-1. **Phase 0** (Weeks 1-3): Foundation & Data Pipeline ✅
-2. **Phase 1** (Weeks 4-6): Static Geometry Rendering
-3. **Phase 2** (Weeks 7-9): Core Game Loop & Math
-4. **Phase 3** (Weeks 10-12): Player Movement & Physics
-5. **Phase 4** (Weeks 13-14): BSP Rendering & Visibility
-6. **Phase 5** (Weeks 15-16): Sprites & Billboards
-7. **Phase 6** (Weeks 17-20): AI & Combat
-8. **Phase 7** (Weeks 21-23): Sectors & Special Effects
-9. **Phase 8** (Weeks 24-25): Audio System
-10. **Phase 9** (Weeks 26-27): UI & HUD
-11. **Phase 10** (Weeks 28-30): Polish & Optimization
-
-## Technical Details
-
-### Core Principles
-- **Preserve game logic**: Exact DOOM physics and mechanics
-- **Deterministic behavior**: Fixed-point math, 35 Hz tick rate
-- **Modern rendering**: three.js WebGL renderer with BSP culling
-
-### Coordinate System
-- DOOM: (x, y, z) where y is north, z is up
-- three.js: (x, y, z) where y is up, z is forward
-- **Mapping**: DOOM (x, y, z) → three.js (x, z, -y)
-
-### File Formats
-- **WAD**: Archive format containing all game data
-- **Patches**: Column-based images with transparency
-- **Flats**: 64x64 uncompressed textures
-- **Maps**: Vertices, lines, sectors, things, BSP tree
-
-## Testing
-
-```bash
-# Run all tests
-npm test
-
-# Run tests with UI
-npm run test:ui
-
-# Run tests in watch mode
-npm test -- --watch
-```
+- **Coordinates:** DOOM `(x, y, z)` with z up maps to Three.js roughly as `(x, z, -y)` (y up in the browser).
+- **Simulation:** Deterministic-style stepping (35 Hz tic, fixed-point style math where it matters for DOOM fidelity).
+- **Assets:** Standard DOOM WAD lumps (vertices, linedefs, sectors, BSP, PLAYPAL, patches, flats, etc.).
 
 ## License
 
-This project is based on the DOOM source code released by id Software under the DOOM Source Code License. The original DOOM is Copyright (C) 1993-1996 id Software, Inc.
-
-This three.js port is for educational purposes.
+Based on **id Software’s DOOM source** ([DOOM Source Code License](https://github.com/id-Software/DOOM)). Original game Copyright © 1993–1996 id Software, Inc. This repository is an **educational / hobby** Three.js implementation—ensure you have rights to any WAD files you use.
 
 ## References
 
-- [DOOM Source Code](https://github.com/id-Software/DOOM) - Original C source code
-- [three.js Documentation](https://threejs.org/docs/) - 3D rendering library
-- [DOOM Wiki](https://doomwiki.org/) - Comprehensive DOOM documentation
+- [id-Software/DOOM](https://github.com/id-Software/DOOM) — original C source  
+- [three.js docs](https://threejs.org/docs/)  
+- [Doom Wiki](https://doomwiki.org/) — formats and behavior  
