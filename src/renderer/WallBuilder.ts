@@ -84,6 +84,7 @@ export class WallBuilder {
       const bothSkyCeilings =
         isSkyFlat(frontSector.ceilingpic) && isSkyFlat(backSector.ceilingpic);
 
+      // Upper (front side): neighbor ceiling lower than this sector's.
       if (
         !bothSkyCeilings &&
         backSector.ceilingheight < frontSector.ceilingheight &&
@@ -109,6 +110,33 @@ export class WallBuilder {
         );
       }
 
+      // Upper (back side): opposite gap — seen from sector sidenum[1].
+      if (
+        backSide &&
+        !bothSkyCeilings &&
+        frontSector.ceilingheight < backSector.ceilingheight &&
+        backSide.toptexture !== '-'
+      ) {
+        const unpegTop = (linedef.flags & ML_DONTPEGTOP) !== 0;
+        walls.push(
+          this.createWall(
+            lineIndex,
+            linedef.sidenum[1],
+            v2.x,
+            v2.y,
+            v1.x,
+            v1.y,
+            frontSector.ceilingheight,
+            backSector.ceilingheight,
+            backSide.toptexture,
+            backSector.lightlevel,
+            backSide.textureoffset,
+            backSide.rowoffset,
+            unpegTop
+          )
+        );
+      }
+
       if (backSector.floorheight > frontSector.floorheight && frontSide.bottomtexture !== '-') {
         const unpegBottom = (linedef.flags & ML_DONTPEGBOTTOM) !== 0;
         walls.push(
@@ -125,6 +153,31 @@ export class WallBuilder {
             frontSector.lightlevel,
             frontSide.textureoffset,
             frontSide.rowoffset,
+            unpegBottom
+          )
+        );
+      }
+
+      if (
+        backSide &&
+        frontSector.floorheight > backSector.floorheight &&
+        backSide.bottomtexture !== '-'
+      ) {
+        const unpegBottom = (linedef.flags & ML_DONTPEGBOTTOM) !== 0;
+        walls.push(
+          this.createWall(
+            lineIndex,
+            linedef.sidenum[1],
+            v2.x,
+            v2.y,
+            v1.x,
+            v1.y,
+            backSector.floorheight,
+            frontSector.floorheight,
+            backSide.bottomtexture,
+            backSector.lightlevel,
+            backSide.textureoffset,
+            backSide.rowoffset,
             unpegBottom
           )
         );

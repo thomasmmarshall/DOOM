@@ -175,13 +175,8 @@ export class LevelRenderer {
       viewAngleBam
     );
 
-    const visibleSectors = new Set<number>();
     const visibleLinedefs = new Set<number>();
     for (const subsectorIdx of visibleSubsectors) {
-      const sectorIdx = this.bspRenderer.getSubsectorSector(subsectorIdx);
-      if (sectorIdx >= 0) {
-        visibleSectors.add(sectorIdx);
-      }
       for (const segIdx of this.bspRenderer.getSubsectorSegs(subsectorIdx)) {
         const seg = this.mapData.segs[segIdx];
         if (seg && seg.linedef >= 0) {
@@ -190,10 +185,13 @@ export class LevelRenderer {
       }
     }
 
-    for (const [sectorIdx, meshes] of this.sectorMeshes.entries()) {
-      const visible = visibleSectors.has(sectorIdx);
+    // Floors/ceilings: do not tie visibility to BSP subsectors only. Neighboring
+    // sectors were fully hidden when their subsector wasn't in the frustum, which
+    // caused see-through voids near openings and on moving lifts. Walls stay
+    // BSP-culled; depth buffer hides occluded flats.
+    for (const meshes of this.sectorMeshes.values()) {
       for (const mesh of meshes) {
-        mesh.visible = visible;
+        mesh.visible = true;
       }
     }
 
