@@ -21,7 +21,7 @@ G_Ticker (per tic):
 ## This Port (main.ts gameTick)
 
 ```
-1. tickCount++, levelTime++                    ← leveltime: we increment at START
+1. tickCount++
 2. Build ticcmd
 3. Use button → tryUseAction
 4. Attack button → firePlayerWeapon
@@ -39,6 +39,7 @@ G_Ticker (per tic):
 16. updateSectorSpecials
 17. Player counters (bonusCount, message, powerups)
 18. HUD render
+19. levelTime++                                ← matches DOOM end of P_Ticker (main.ts)
 ```
 
 ## Alignments
@@ -50,27 +51,21 @@ G_Ticker (per tic):
 | Thinkers run (monsters) | ✓ | ✓ | ✓ |
 | Doors/platforms after thinkers | ✓ | ✓ | ✓ |
 | Sector specials (lights, damage) | P_UpdateSpecials | updateSectorSpecials | ✓ |
-| leveltime for animations | Used in P_UpdateSpecials | Used in updateSectorSpecials | ⚠ See below |
+| leveltime for animations | Used in P_UpdateSpecials | Used in updateSectorSpecials | ✓ (increment end of tick) |
 
 ## Misalignments
 
-### 1. leveltime increment timing
-- **DOOM:** `leveltime++` at END of P_Ticker (after P_UpdateSpecials)
-- **Ours:** `levelTime++` at START of gameTick
-- **Impact:** Sector specials (nukage damage, light blink) use levelTime. We're 1 tick ahead.
-- **Fix:** Move levelTime++ to end of tick.
-
-### 2. Player not in thinker list
+### 1. Player not in thinker list
 - **DOOM:** Player mobj is a thinker; P_XYMovement/P_ZMovement run during P_RunThinkers
 - **Ours:** Player processed separately before runThinkers
 - **Impact:** Order is equivalent (player always moves before enemies). No fix needed.
 
-### 3. P_RespawnSpecials
+### 2. P_RespawnSpecials
 - **DOOM:** Item respawn in deathmatch
 - **Ours:** Not implemented
 - **Impact:** Deathmatch-only; single-player unaffected.
 
-### 4. P_UpdateSpecials scope
+### 3. P_UpdateSpecials scope
 - **DOOM:** Animated flats, animated textures, scroll effects, level timer
 - **Ours:** Sector lights, nukage damage, secret detection, scroll (line 48)
 - **Impact:** We cover the main gameplay-affecting specials. Some animation may differ.

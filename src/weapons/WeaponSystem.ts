@@ -261,14 +261,26 @@ export function consumeWeaponAmmo(player: Mobj, weaponType: WeaponType): void {
   );
 }
 
-/** Distance along ray to first wall hit, or maxRange if none. */
+/**
+ * Shot origin height for P_LineAttack / P_AimLineAttack (linuxdoom p_map.c).
+ * `shootz = z + (height>>1) + 8*FRACUNIT`
+ */
+export function lineAttackShootZ(source: Mobj): number {
+  return FixedToFloat(source.z) + FixedToFloat(source.height) / 2 + 8;
+}
+
+/**
+ * Distance along ray to first wall hit, or maxRange if none.
+ * @param shootZ — map Z used for two-sided openings (PTR_ShootTraverse, aimslope 0).
+ */
 export function getRayToWallDistance(
   startX: number,
   startY: number,
   dirX: number,
   dirY: number,
   maxRange: number,
-  mapData: MapData
+  mapData: MapData,
+  shootZ: number
 ): number {
   let minT = maxRange;
   for (const line of mapData.linedefs) {
@@ -289,17 +301,33 @@ export function getRayToWallDistance(
       continue;
     }
     if (line.sidenum[0] === -1) continue;
-    const frontSector = mapData.sectors[mapData.sidedefs[line.sidenum[0]].sector];
-    const frontFloor = frontSector.floorheight;
-    const frontCeiling = frontSector.ceilingheight;
     if (line.sidenum[1] === -1) {
       minT = t;
       continue;
     }
+    const frontSector = mapData.sectors[mapData.sidedefs[line.sidenum[0]].sector];
     const backSector = mapData.sectors[mapData.sidedefs[line.sidenum[1]].sector];
-    const openBottom = Math.max(frontFloor, backSector.floorheight);
-    const openTop = Math.min(frontCeiling, backSector.ceilingheight);
-    if (openTop <= openBottom) minT = t;
+    const frontFloor = frontSector.floorheight;
+    const backFloor = backSector.floorheight;
+    const frontCeil = frontSector.ceilingheight;
+    const backCeil = backSector.ceilingheight;
+    const openBottom = Math.max(frontFloor, backFloor);
+    const openTop = Math.min(frontCeil, backCeil);
+    if (openTop <= openBottom) {
+      minT = t;
+      continue;
+    }
+    // Horizontal trace: same tests as PTR_ShootTraverse with aimslope == 0.
+    let blocked = false;
+    if (frontFloor !== backFloor && openBottom > shootZ) {
+      blocked = true;
+    }
+    if (!blocked && frontCeil !== backCeil && openTop < shootZ) {
+      blocked = true;
+    }
+    if (blocked) {
+      minT = t;
+    }
   }
   return minT;
 }
@@ -352,12 +380,12 @@ export function performHitscan(
 
   const startX = FixedToFloat(source.x);
   const startY = FixedToFloat(source.y);
-  const startZ = FixedToFloat(source.z) + 32;
+  const startZ = lineAttackShootZ(source);
 
   const dirX = Math.cos(finalAngle);
   const dirY = Math.sin(finalAngle);
 
-  const wallHitDist = mapData ? getRayToWallDistance(startX, startY, dirX, dirY, range, mapData) : range;
+  const wallHitDist = mapData ? getRayToWallDistance(startX, startY, dirX, dirY, range, mapData, startZ) : range;
 
   let closestDist = wallHitDist;
   let closestTarget: Mobj | undefined;

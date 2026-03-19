@@ -130,7 +130,7 @@ export function spawnPlayerProjectile(
     const dirX = vx / step;
     const dirY = vy / step;
 
-    const wallT = getRayToWallDistance(ox, oy, dirX, dirY, step + 0.01, mapData);
+    const wallT = getRayToWallDistance(ox, oy, dirX, dirY, step + 0.01, mapData, oz + FixedToFloat(m.height) / 2);
     let hitDist = step + 0.01;
     let hitThing: Mobj | undefined;
 
