@@ -24,5 +24,7 @@ npm-debug.log*
 # Testing
 coverage/
 
-# WAD files (optional - uncomment if not committing WAD files)
-# *.wad
+# IWAD / PWAD — ignore outside `public/` (tracked game data lives there)
+*.[wW][aA][dD]
+!public/*.[wW][aA][dD]
+!public/**/*.[wW][aA][dD]
