@@ -38,10 +38,11 @@ export class SkyRenderer {
         true
       );
 
-      // Tile 4x horizontally; v stays 0→1 (no vertical stretch)
+      // Tile 4x horizontally; flip V so sky is right-side up (DOOM horizon at bottom)
       const uvAttribute = geometry.getAttribute('uv');
       for (let i = 0; i < uvAttribute.count; i++) {
         uvAttribute.setX(i, (1 - uvAttribute.getX(i)) * 4);
+        uvAttribute.setY(i, 1 - uvAttribute.getY(i));
       }
       uvAttribute.needsUpdate = true;
 

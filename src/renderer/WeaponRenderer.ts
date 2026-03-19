@@ -222,7 +222,7 @@ export class WeaponRenderer {
     const bobX = Math.sin(bobPhase) * Math.min(6, this.bobOffset * 0.08);
     const bobY = Math.abs(Math.cos(bobPhase)) * Math.min(8, this.bobOffset * 0.12);
     const xPos = 160 + bobX;
-    const yPos = 128 - (sprite.height * 0.5) + bobY;
+    const yPos = 168 - (sprite.height * 0.5) + bobY;
 
     this.weaponMesh.position.set(xPos, yPos, 0);
 

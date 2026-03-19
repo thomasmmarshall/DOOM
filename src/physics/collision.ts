@@ -4,6 +4,7 @@
  */
 
 import type { Mobj } from '../game/mobj';
+import { MobjFlags } from '../game/mobj';
 import type { MapData } from '../level/types';
 import { findSectorAtPoint } from '../level';
 import type { Fixed } from '../core';
@@ -137,6 +138,38 @@ export function checkWallCollision(
 }
 
 /**
+ * Check if new position collides with any SOLID mobj (barrels, pillars, etc.)
+ * Returns true if no mobj collision, false if blocked.
+ */
+function checkMobjCollision(
+  mobj: Mobj,
+  newX: Fixed,
+  newY: Fixed,
+  otherMobjs: Mobj[]
+): boolean {
+  const x = FixedToFloat(newX);
+  const y = FixedToFloat(newY);
+  const radius = FixedToFloat(mobj.radius);
+
+  for (const other of otherMobjs) {
+    if (other === mobj || other.removed) continue;
+    if (!(other.flags & MobjFlags.SOLID)) continue;
+
+    const ox = FixedToFloat(other.x);
+    const oy = FixedToFloat(other.y);
+    const orad = FixedToFloat(other.radius);
+    const dx = x - ox;
+    const dy = y - oy;
+    const distSq = dx * dx + dy * dy;
+    const minDist = radius + orad;
+    if (distSq < minDist * minDist) {
+      return false; // Blocked
+    }
+  }
+  return true;
+}
+
+/**
  * Update floor and ceiling heights based on current position
  */
 function updateFloorCeiling(mobj: Mobj, mapData: MapData): void {
@@ -155,38 +188,28 @@ function updateFloorCeiling(mobj: Mobj, mapData: MapData): void {
 
 /**
  * Apply collision detection to movement
- * Modifies mobj position based on collision
+ * Modifies mobj position based on collision with walls and SOLID mobjs (barrels, etc.)
+ * @param otherMobjs - Optional list of all mobjs for mobj-vs-mobj collision; when omitted only walls are checked.
  */
-export function applyCollision(mobj: Mobj, mapData: MapData): void {
-  // Get new position
+export function applyCollision(mobj: Mobj, mapData: MapData, otherMobjs: Mobj[] = []): void {
   const newX = mobj.x + mobj.momx;
   const newY = mobj.y + mobj.momy;
 
-  // Check wall collision
-  if (checkWallCollision(mobj, newX, newY, mapData)) {
-    // No wall collision - apply full movement
+  const wallOk = checkWallCollision(mobj, newX, newY, mapData);
+  const mobjOk = checkMobjCollision(mobj, newX, newY, otherMobjs);
+
+  if (wallOk && mobjOk) {
     mobj.x = newX;
     mobj.y = newY;
-
-    // Update floor/ceiling heights at new position
     updateFloorCeiling(mobj, mapData);
 
-    // Check if we can step up to the new floor height
     const newFloorHeight = FixedToFloat(mobj.floorz);
     const currentZ = FixedToFloat(mobj.z);
     const stepHeight = newFloorHeight - currentZ;
 
-    // If floor is higher but within step height, step up
     if (stepHeight > 0 && stepHeight <= MAX_STEP_HEIGHT) {
       mobj.z = mobj.floorz;
-    }
-    // If floor is lower, we'll fall (gravity handles this)
-    else if (stepHeight <= 0) {
-      // Moving onto lower floor or same height - allow it
-    }
-    // If step is too high, block movement
-    else if (stepHeight > MAX_STEP_HEIGHT) {
-      // Can't step up - revert position
+    } else if (stepHeight > MAX_STEP_HEIGHT) {
       mobj.x -= mobj.momx;
       mobj.y -= mobj.momy;
       mobj.momx = 0;
@@ -195,24 +218,20 @@ export function applyCollision(mobj: Mobj, mapData: MapData): void {
       return;
     }
   } else {
-    // Wall collision detected - try sliding along walls
-    // Try X movement only
     const newX_only = mobj.x + mobj.momx;
-    if (checkWallCollision(mobj, newX_only, mobj.y, mapData)) {
+    const newY_only = mobj.y + mobj.momy;
+    let moved = false;
+    if (checkWallCollision(mobj, newX_only, mobj.y, mapData) && checkMobjCollision(mobj, newX_only, mobj.y, otherMobjs)) {
       mobj.x = newX_only;
       updateFloorCeiling(mobj, mapData);
+      moved = true;
     }
-
-    // Try Y movement only
-    const newY_only = mobj.y + mobj.momy;
-    if (checkWallCollision(mobj, mobj.x, newY_only, mapData)) {
+    if (checkWallCollision(mobj, mobj.x, newY_only, mapData) && checkMobjCollision(mobj, mobj.x, newY_only, otherMobjs)) {
       mobj.y = newY_only;
       updateFloorCeiling(mobj, mapData);
+      moved = true;
     }
-
-    // If both failed, stop movement
-    if (!checkWallCollision(mobj, newX_only, mobj.y, mapData) &&
-        !checkWallCollision(mobj, mobj.x, newY_only, mapData)) {
+    if (!moved) {
       mobj.momx = 0;
       mobj.momy = 0;
     }

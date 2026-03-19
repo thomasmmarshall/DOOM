@@ -7,8 +7,6 @@
 import type { WADReader } from '../wad';
 import { PatchDecoder } from '../graphics';
 
-const VIEW_WIDTH = 320;
-const VIEW_HEIGHT = 168;
 const BORDER_SIZE = 8;
 
 export class BorderFrame {
@@ -18,23 +16,38 @@ export class BorderFrame {
   private palette: Uint8ClampedArray;
   private patches: Map<string, HTMLCanvasElement> = new Map();
   private initialized = false;
+  private viewWidth = 320;
+  private viewHeight = 168;
 
   constructor(wad: WADReader, palette: Uint8ClampedArray) {
     this.wad = wad;
     this.palette = palette;
 
     this.canvas = document.createElement('canvas');
-    this.canvas.width = VIEW_WIDTH + BORDER_SIZE * 2;
-    this.canvas.height = VIEW_HEIGHT + BORDER_SIZE * 2;
+    this.canvas.width = this.viewWidth + BORDER_SIZE * 2;
+    this.canvas.height = this.viewHeight + BORDER_SIZE * 2;
     this.canvas.style.position = 'absolute';
-    this.canvas.style.top = '0';
-    this.canvas.style.left = '0';
+    this.canvas.style.top = '-8px';
+    this.canvas.style.left = '-8px';
     this.canvas.style.imageRendering = 'pixelated';
     this.canvas.style.imageRendering = 'crisp-edges';
     this.canvas.style.pointerEvents = 'none';
     this.canvas.style.zIndex = '500';
 
     this.ctx = this.canvas.getContext('2d')!;
+  }
+
+  /**
+   * Resize border to frame a view of the given dimensions (e.g. viewContainer size).
+   * Call when the view is first shown and on window resize.
+   */
+  resize(viewWidth: number, viewHeight: number): void {
+    if (viewWidth <= 0 || viewHeight <= 0) return;
+    this.viewWidth = viewWidth;
+    this.viewHeight = viewHeight;
+    this.canvas.width = viewWidth + BORDER_SIZE * 2;
+    this.canvas.height = viewHeight + BORDER_SIZE * 2;
+    this.render();
   }
 
   async init(): Promise<void> {
@@ -77,17 +90,19 @@ export class BorderFrame {
 
     if (!t || !b || !l || !r || !tl || !tr || !bl || !br) return;
 
-    for (let x = 0; x < VIEW_WIDTH; x += BORDER_SIZE) {
+    const w = this.viewWidth;
+    const h = this.viewHeight;
+    for (let x = 0; x < w; x += BORDER_SIZE) {
       this.ctx.drawImage(t, BORDER_SIZE + x, 0);
-      this.ctx.drawImage(b, BORDER_SIZE + x, BORDER_SIZE + VIEW_HEIGHT);
+      this.ctx.drawImage(b, BORDER_SIZE + x, BORDER_SIZE + h);
     }
-    for (let y = 0; y < VIEW_HEIGHT; y += BORDER_SIZE) {
+    for (let y = 0; y < h; y += BORDER_SIZE) {
       this.ctx.drawImage(l, 0, BORDER_SIZE + y);
-      this.ctx.drawImage(r, BORDER_SIZE + VIEW_WIDTH, BORDER_SIZE + y);
+      this.ctx.drawImage(r, BORDER_SIZE + w, BORDER_SIZE + y);
     }
     this.ctx.drawImage(tl, 0, 0);
-    this.ctx.drawImage(tr, BORDER_SIZE + VIEW_WIDTH, 0);
-    this.ctx.drawImage(bl, 0, BORDER_SIZE + VIEW_HEIGHT);
-    this.ctx.drawImage(br, BORDER_SIZE + VIEW_WIDTH, BORDER_SIZE + VIEW_HEIGHT);
+    this.ctx.drawImage(tr, BORDER_SIZE + w, 0);
+    this.ctx.drawImage(bl, 0, BORDER_SIZE + h);
+    this.ctx.drawImage(br, BORDER_SIZE + w, BORDER_SIZE + h);
   }
 }

@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three-stdlib';
 import { loadWAD } from './demo';
-import { MapParser } from './level';
+import { MapParser, findSectorAtPoint } from './level';
 import { PaletteLoader } from './graphics';
 import { LevelRenderer, WeaponRenderer } from './renderer';
 import { doomToThree, doomAngleToThreeRadians, initTables, GameTicker, TICRATE, IntToFixed, FixedToFloat, DegreesToAngle, FloatToFixed } from './core';
@@ -64,6 +64,7 @@ class DoomGame {
   private playerDied: boolean = false;
   private gameContainer?: HTMLElement;
   private viewContainer?: HTMLElement;
+  private borderFrame?: BorderFrame;
 
   constructor() {
     // Initialize trigonometry tables
@@ -160,6 +161,9 @@ class DoomGame {
       this.renderer.domElement.style.width = '100%';
       this.renderer.domElement.style.height = '100%';
     }
+    if (this.viewContainer && this.borderFrame) {
+      this.borderFrame.resize(this.viewContainer.offsetWidth, this.viewContainer.offsetHeight);
+    }
   }
 
   private onResize(): void {
@@ -178,6 +182,7 @@ class DoomGame {
 
   private spawnPuff(x: number, y: number, z: number): void {
     const puffFrames = ['A', 'B', 'C', 'D'];
+    const sectorIndex = this.mapData ? findSectorAtPoint(x, y, this.mapData) : -1;
     const puff: Mobj = {
       x: FloatToFixed(x),
       y: FloatToFixed(y),
@@ -196,6 +201,7 @@ class DoomGame {
       sprite: 'PUFF',
       frame: 'A',
       rotation: 0,
+      sectorIndex: sectorIndex >= 0 ? sectorIndex : undefined,
     };
     let tics = 16;
     this.addWorldMobj(puff, () => {
@@ -371,6 +377,7 @@ class DoomGame {
         rgbaPalette,
         () => {
           titleScreen.hide();
+          void this.musicPlayer?.activate();
           this.showMainMenu(wad, palette, colormap, rgbaPalette);
         },
         () => {
@@ -395,13 +402,13 @@ class DoomGame {
     rgbaPalette: Uint8ClampedArray
   ): void {
     const mainMenu = new MainMenu(wad, rgbaPalette, {
-      onStartGame: (episode: number, skill: number) => {
+      onStartGame: (mapName: string, skill: number) => {
         mainMenu.hide();
         this.musicPlayer?.stop();
-        const mapName = `E${episode}M1`;
         void this.loadLevel(wad, palette, colormap, rgbaPalette, mapName, skill);
       },
       onMenuSound: () => this.soundManager?.play('switch', 0.3),
+      onFirstInteraction: () => void this.musicPlayer?.activate(),
     });
     mainMenu.init().then(() => {
       mainMenu.show();
@@ -435,15 +442,11 @@ class DoomGame {
       // Create weapon renderer and HUD
       this.weaponRenderer = new WeaponRenderer(wad, rgbaPalette);
       this.statusBar = new StatusBar(wad, rgbaPalette, this.gameContainer);
-      const borderFrame = new BorderFrame(wad, rgbaPalette);
-      await borderFrame.init();
+      this.borderFrame = new BorderFrame(wad, rgbaPalette);
+      await this.borderFrame.init();
       if (this.viewContainer) {
-        const borderCanvas = borderFrame.getCanvas();
-        borderCanvas.style.position = 'absolute';
-        borderCanvas.style.left = '-8px';
-        borderCanvas.style.top = '-8px';
-        this.viewContainer.appendChild(borderCanvas);
-        borderFrame.render();
+        this.viewContainer.appendChild(this.borderFrame.getCanvas());
+        this.borderFrame.resize(this.viewContainer.offsetWidth, this.viewContainer.offsetHeight);
       }
       // soundManager and musicPlayer created in init()
       await this.statusBar.init();
@@ -589,8 +592,8 @@ class DoomGame {
     // Apply gravity
     applyGravity(this.playerMobj);
 
-    // Apply XY momentum with collision detection
-    applyCollision(this.playerMobj, this.mapData);
+    // Apply XY momentum with collision detection (walls + SOLID mobjs e.g. barrels)
+    applyCollision(this.playerMobj, this.mapData, this.thinkerManager.getAllMobjs());
 
     // Apply Z momentum
     applyZMomentum(this.playerMobj);
@@ -867,7 +870,7 @@ class DoomGame {
         if (special === 1) {
           this.soundManager?.play('doorOpen', 0.35);
         } else if (special === 11) {
-          this.updateInfo('E1M1 complete. Exit switch activated.');
+          this.updateInfo(`${this.mapData?.name ?? 'Level'} complete. Exit switch activated.`);
           this.ticker?.stop();
         }
       }

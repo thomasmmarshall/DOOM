@@ -10,11 +10,12 @@ import { PatchDecoder } from '../graphics';
 const LINEHEIGHT = 16;
 const SKULLXOFF = -32;
 
-export type MenuScreen = 'main' | 'episode' | 'skill';
+export type MenuScreen = 'main' | 'episode' | 'map' | 'skill';
 
 export interface MainMenuCallbacks {
-  onStartGame: (episode: number, skill: number) => void;
+  onStartGame: (mapName: string, skill: number) => void;
   onMenuSound?: () => void;
+  onFirstInteraction?: () => void;
 }
 
 export class MainMenu {
@@ -30,6 +31,9 @@ export class MainMenu {
   private titlePatch?: HTMLCanvasElement;
   private patches: Map<string, HTMLCanvasElement> = new Map();
   private selectedEpisode: number = 0;
+  private selectedMapIndex: number = 0;
+  private episodeMapNames: string[] = [];
+  private firstInteractionFired: boolean = false;
 
   constructor(
     wad: WADReader,
@@ -106,6 +110,7 @@ export class MainMenu {
     this.itemOn = 0;
     this.skullFrame = 0;
     this.skullCounter = 8;
+    this.firstInteractionFired = false;
   }
 
   hide(): void {
@@ -125,7 +130,15 @@ export class MainMenu {
     this.canvas.style.height = `${200 * scale}px`;
   }
 
+  private fireFirstInteraction(): void {
+    if (!this.firstInteractionFired) {
+      this.firstInteractionFired = true;
+      this.callbacks.onFirstInteraction?.();
+    }
+  }
+
   private handleKey = (e: KeyboardEvent): void => {
+    this.fireFirstInteraction();
     if (this.screen === 'main') {
       if (e.code === 'ArrowDown' || e.code === 'KeyS') {
         e.preventDefault();
@@ -151,12 +164,34 @@ export class MainMenu {
       } else if (e.code === 'Enter' || e.code === 'Space') {
         e.preventDefault();
         this.selectedEpisode = this.itemOn;
-        this.screen = 'skill';
-        this.itemOn = 2; // Hurt Me Plenty default
+        const ep = this.selectedEpisode + 1;
+        this.episodeMapNames = this.wad.findMapLumps().filter((n) => /^E\dM\d$/.test(n) && n.startsWith(`E${ep}M`));
+        if (this.episodeMapNames.length === 0) this.episodeMapNames.push(`E${ep}M1`);
+        this.screen = 'map';
+        this.itemOn = 0;
         this.callbacks.onMenuSound?.();
       } else if (e.code === 'Escape') {
         this.screen = 'main';
         this.itemOn = 0;
+      }
+    } else if (this.screen === 'map') {
+      if (e.code === 'ArrowDown' || e.code === 'KeyS') {
+        e.preventDefault();
+        this.itemOn = Math.min(this.episodeMapNames.length - 1, this.itemOn + 1);
+        this.callbacks.onMenuSound?.();
+      } else if (e.code === 'ArrowUp' || e.code === 'KeyW') {
+        e.preventDefault();
+        this.itemOn = Math.max(0, this.itemOn - 1);
+        this.callbacks.onMenuSound?.();
+      } else if (e.code === 'Enter' || e.code === 'Space') {
+        e.preventDefault();
+        this.selectedMapIndex = this.itemOn;
+        this.screen = 'skill';
+        this.itemOn = 2;
+        this.callbacks.onMenuSound?.();
+      } else if (e.code === 'Escape') {
+        this.screen = 'episode';
+        this.itemOn = this.selectedEpisode;
       }
     } else if (this.screen === 'skill') {
       if (e.code === 'ArrowDown' || e.code === 'KeyS') {
@@ -169,15 +204,16 @@ export class MainMenu {
         this.callbacks.onMenuSound?.();
       } else if (e.code === 'Enter' || e.code === 'Space') {
         e.preventDefault();
-        this.callbacks.onStartGame(this.selectedEpisode + 1, this.itemOn + 1);
+        this.callbacks.onStartGame(this.episodeMapNames[this.selectedMapIndex] ?? this.episodeMapNames[0], this.itemOn + 1);
       } else if (e.code === 'Escape') {
-        this.screen = 'episode';
-        this.itemOn = 0;
+        this.screen = 'map';
+        this.itemOn = this.selectedMapIndex;
       }
     }
   };
 
   private handleClick = (e: MouseEvent): void => {
+    this.fireFirstInteraction();
     // Approximate click to item based on y position
     const rect = this.canvas.getBoundingClientRect();
     const scaleY = rect.height / 200;
@@ -196,6 +232,19 @@ export class MainMenu {
       if (item >= 0 && item <= 2) {
         this.itemOn = item;
         this.selectedEpisode = item;
+        const ep = this.selectedEpisode + 1;
+        this.episodeMapNames = this.wad.findMapLumps().filter((n) => /^E\dM\d$/.test(n) && n.startsWith(`E${ep}M`));
+        if (this.episodeMapNames.length === 0) this.episodeMapNames.push(`E${ep}M1`);
+        this.screen = 'map';
+        this.itemOn = 0;
+        this.callbacks.onMenuSound?.();
+      }
+    } else if (this.screen === 'map') {
+      const baseY = 63 * scaleY;
+      const item = Math.floor((clickY - baseY) / (LINEHEIGHT * scaleY));
+      if (item >= 0 && item < this.episodeMapNames.length) {
+        this.itemOn = item;
+        this.selectedMapIndex = item;
         this.screen = 'skill';
         this.itemOn = 2;
         this.callbacks.onMenuSound?.();
@@ -205,7 +254,7 @@ export class MainMenu {
       const item = Math.floor((clickY - baseY) / (LINEHEIGHT * scaleY));
       if (item >= 0 && item <= 4) {
         this.itemOn = item;
-        this.callbacks.onStartGame(this.selectedEpisode + 1, item + 1);
+        this.callbacks.onStartGame(this.episodeMapNames[this.selectedMapIndex] ?? this.episodeMapNames[0], item + 1);
       }
     }
   };
@@ -275,6 +324,18 @@ export class MainMenu {
       for (let i = 0; i < items.length; i++) {
         const patch = this.patches.get(items[i]);
         if (patch) this.ctx.drawImage(patch, 48, y);
+        y += LINEHEIGHT;
+      }
+      if (skullPatch) this.ctx.drawImage(skullPatch, 48 + SKULLXOFF, 63 - 5 + this.itemOn * LINEHEIGHT);
+    } else if (this.screen === 'map') {
+      const epPatch = this.patches.get('M_EPISOD');
+      if (epPatch) this.ctx.drawImage(epPatch, 54, 38);
+      this.ctx.fillStyle = '#c0a060';
+      this.ctx.font = '16px sans-serif';
+      this.ctx.fillText('Which map?', 48, 52);
+      let y = 63;
+      for (let i = 0; i < this.episodeMapNames.length; i++) {
+        this.ctx.fillText(this.episodeMapNames[i], 48, y + 12);
         y += LINEHEIGHT;
       }
       if (skullPatch) this.ctx.drawImage(skullPatch, 48 + SKULLXOFF, 63 - 5 + this.itemOn * LINEHEIGHT);
