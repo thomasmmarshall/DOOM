@@ -6,9 +6,8 @@
 
 import type { WADReader } from '../wad';
 import { PatchDecoder } from '../graphics';
-
-/** Original st_stuff.c: 5 pain levels */
-const ST_NUMPAINFACES = 5;
+import type { Mobj } from '../game/mobj';
+import { buildStFaceLumpNames, StFaceWidgetState, ST_DEADFACE, type StFaceInput } from './stFace';
 
 /**
  * Player stats for HUD display
@@ -17,10 +16,11 @@ const ST_NUMPAINFACES = 5;
 export interface PlayerStats {
   health: number;
   armor: number;
-  ammo: number;
-  maxAmmo: number;
+  /** Null = ready weapon uses no ammo (do not draw digits). */
+  ammo: number | null;
   /** Per-type ammo for right-side display: bullets, shells, rockets, cells (indices 0-3) */
   ammoCounts: [number, number, number, number];
+  maxAmmoCounts: [number, number, number, number];
   keys: {
     blueCard: boolean;
     yellowCard: boolean;
@@ -29,10 +29,13 @@ export interface PlayerStats {
     yellowSkull: boolean;
     redSkull: boolean;
   };
-  weapons: boolean[]; // Index 0=fist, 1=pistol, ... 7=BFG; arms show 2-7 (keys 1-6 in widget)
+  weapons: boolean[];
   currentWeapon: number;
-  face?: number;
   message?: string;
+  faceContext?: Omit<StFaceInput, 'health' | 'healthPrevTick' | 'playerMo'> & {
+    healthPrevTick: number;
+    playerMo: Mobj;
+  };
 }
 
 export class StatusBar {
@@ -42,9 +45,13 @@ export class StatusBar {
   private palette: Uint8ClampedArray;
   private numberPatches: HTMLCanvasElement[] = [];
   private statusBarPatch?: HTMLCanvasElement;
-  private facePatches: Map<number, HTMLCanvasElement> = new Map(); // pain level 0-4 + dead
+  private facePatches: HTMLCanvasElement[] = [];
+  private faceBackPatch: HTMLCanvasElement | null = null;
+  private faceWidget = new StFaceWidgetState();
   private keyPatches: HTMLCanvasElement[] = []; // STKEYS0-5
   private armsBgPatch: HTMLCanvasElement | null = null; // STARMS single-player arms background
+  private armsGray: HTMLCanvasElement[] = [];
+  private armsYellow: HTMLCanvasElement[] = [];
   private initialized: boolean = false;
 
   // Original st_stuff.c coordinates (Y relative to bar top 0)
@@ -61,6 +68,7 @@ export class StatusBar {
   private static readonly ST_AMMO1Y = 11;
   private static readonly ST_AMMO2Y = 23;
   private static readonly ST_AMMO3Y = 17;
+  private static readonly ST_MAXAMMO0X = 314;
 
   constructor(wad: WADReader, palette: Uint8ClampedArray, parent?: HTMLElement) {
     this.wad = wad;
@@ -137,11 +145,29 @@ export class StatusBar {
       }
     }
 
-    // Face patches: STFST00 (80-100%), STFST10 (60-79%), STFST20 (40-59%), STFST30 (20-39%), STFST40 (1-19%), STFDEAD0 (dead)
-    const faceNames = ['STFST00', 'STFST10', 'STFST20', 'STFST30', 'STFST40', 'STFDEAD0'];
-    for (let i = 0; i < faceNames.length; i++) {
-      const lumpData = this.wad.readLump(faceNames[i]);
-      if (!lumpData) continue;
+    const faceBackData = this.wad.readLump('STFB0');
+    if (faceBackData) {
+      try {
+        const decoded = PatchDecoder.decodePatch(faceBackData, this.palette);
+        const canvas = document.createElement('canvas');
+        canvas.width = decoded.width;
+        canvas.height = decoded.height;
+        const ctx = canvas.getContext('2d')!;
+        const imageData = ctx.createImageData(decoded.width, decoded.height);
+        imageData.data.set(decoded.pixels);
+        ctx.putImageData(imageData, 0, 0);
+        this.faceBackPatch = canvas;
+      } catch {
+        console.warn('Failed to load STFB0');
+      }
+    }
+
+    for (const name of buildStFaceLumpNames()) {
+      const lumpData = this.wad.readLump(name);
+      if (!lumpData) {
+        this.facePatches.push(document.createElement('canvas'));
+        continue;
+      }
       try {
         const decoded = PatchDecoder.decodePatch(lumpData, this.palette);
         const canvas = document.createElement('canvas');
@@ -151,9 +177,50 @@ export class StatusBar {
         const imageData = ctx.createImageData(decoded.width, decoded.height);
         imageData.data.set(decoded.pixels);
         ctx.putImageData(imageData, 0, 0);
-        this.facePatches.set(i, canvas);
-      } catch (error) {
-        console.warn(`Failed to load face patch ${faceNames[i]}:`, error);
+        this.facePatches.push(canvas);
+      } catch {
+        console.warn(`Failed face ${name}`);
+        this.facePatches.push(document.createElement('canvas'));
+      }
+    }
+
+    for (let n = 2; n <= 7; n++) {
+      const gray = this.wad.readLump(`STGNUM${n}`);
+      if (gray) {
+        try {
+          const decoded = PatchDecoder.decodePatch(gray, this.palette);
+          const canvas = document.createElement('canvas');
+          canvas.width = decoded.width;
+          canvas.height = decoded.height;
+          const ctx = canvas.getContext('2d')!;
+          const imageData = ctx.createImageData(decoded.width, decoded.height);
+          imageData.data.set(decoded.pixels);
+          ctx.putImageData(imageData, 0, 0);
+          this.armsGray.push(canvas);
+        } catch {
+          this.armsGray.push(document.createElement('canvas'));
+        }
+      } else {
+        this.armsGray.push(document.createElement('canvas'));
+      }
+
+      const yellow = this.wad.readLump(`STYSNUM${n}`);
+      if (yellow) {
+        try {
+          const decoded = PatchDecoder.decodePatch(yellow, this.palette);
+          const canvas = document.createElement('canvas');
+          canvas.width = decoded.width;
+          canvas.height = decoded.height;
+          const ctx = canvas.getContext('2d')!;
+          const imageData = ctx.createImageData(decoded.width, decoded.height);
+          imageData.data.set(decoded.pixels);
+          ctx.putImageData(imageData, 0, 0);
+          this.armsYellow.push(canvas);
+        } catch {
+          this.armsYellow.push(document.createElement('canvas'));
+        }
+      } else {
+        this.armsYellow.push(document.createElement('canvas'));
       }
     }
 
@@ -249,31 +316,54 @@ export class StatusBar {
       this.ctx.fillRect(0, 0, 320, 32);
     }
 
-    // Ready-weapon ammo (left), health, armor - original st_stuff positions
-    this.drawNumberRightAligned(Math.max(0, stats.ammo), StatusBar.ST_AMMOX + 24, 3, 3);
+    if (stats.ammo !== null) {
+      this.drawNumberRightAligned(Math.max(0, stats.ammo), StatusBar.ST_AMMOX + 24, 3, 3);
+    }
     this.drawNumberRightAligned(Math.max(0, stats.health), StatusBar.ST_HEALTHX + 24, 3, 3);
     this.drawNumberRightAligned(Math.max(0, stats.armor), StatusBar.ST_ARMORX + 24, 3, 3);
 
-    // Arms background (ARMS area; in deathmatch DOOM draws FRAG here instead)
     if (this.armsBgPatch) {
       this.ctx.drawImage(this.armsBgPatch, StatusBar.ST_ARMSBGX, 0);
     }
 
-    // Weapon slots 2-7 (keys 2-7): draw digit when weapon owned, 6 positions in 2 rows
     for (let i = 0; i < 6; i++) {
-      if (stats.weapons[i + 1]) {
-        const digit = i + 2; // key 2 through 7
-        const x = StatusBar.ST_ARMSX + (i % 3) * StatusBar.ST_ARMSXSPACE;
-        const y = StatusBar.ST_ARMSY + Math.floor(i / 3) * StatusBar.ST_ARMSYSPACE;
-        this.drawNumber(digit, x, y, 1);
+      const x = StatusBar.ST_ARMSX + (i % 3) * StatusBar.ST_ARMSXSPACE;
+      const y = StatusBar.ST_ARMSY + Math.floor(i / 3) * StatusBar.ST_ARMSYSPACE;
+      const gray = this.armsGray[i];
+      const yellow = this.armsYellow[i];
+      if (gray?.width) {
+        this.ctx.drawImage(gray, x - gray.width, y + 3);
+      }
+      if (stats.weapons[i + 1] && yellow?.width) {
+        this.ctx.drawImage(yellow, x - yellow.width, y + 3);
       }
     }
 
-    // Face: ST_FACESX=143, ST_FACESY=168 -> bar (143, 0)
-    const health = Math.min(100, Math.max(0, stats.health));
-    const faceIndex = health <= 0 ? 5 : Math.min(4, Math.floor(((100 - health) * ST_NUMPAINFACES) / 101));
-    const face = this.facePatches.get(faceIndex) ?? this.facePatches.get(0);
-    if (face) {
+    if (this.faceBackPatch?.width) {
+      this.ctx.drawImage(this.faceBackPatch, 143, 0);
+    }
+    let faceIdx = 0;
+    const fc = stats.faceContext;
+    if (fc && this.facePatches.length) {
+      faceIdx = this.faceWidget.tick({
+        health: stats.health,
+        healthPrevTick: fc.healthPrevTick,
+        damageCount: fc.damageCount,
+        bonusCount: fc.bonusCount,
+        weaponJustPicked: fc.weaponJustPicked,
+        attackHeld: fc.attackHeld,
+        invulnTics: fc.invulnTics,
+        angleBam: fc.angleBam,
+        playerX: fc.playerX,
+        playerY: fc.playerY,
+        playerMo: fc.playerMo,
+        damageAttacker: fc.damageAttacker,
+      });
+    } else if (this.facePatches.length > 0) {
+      faceIdx = stats.health <= 0 ? ST_DEADFACE : 0;
+    }
+    const face = this.facePatches[faceIdx];
+    if (face?.width) {
       this.ctx.drawImage(face, 143, 0);
     }
 
@@ -297,6 +387,11 @@ export class StatusBar {
     this.drawNumberRightAligned(Math.max(0, stats.ammoCounts[1]), StatusBar.ST_AMMO0X + 24, StatusBar.ST_AMMO1Y, 3);
     this.drawNumberRightAligned(Math.max(0, stats.ammoCounts[2]), StatusBar.ST_AMMO0X + 24, StatusBar.ST_AMMO2Y, 3);
     this.drawNumberRightAligned(Math.max(0, stats.ammoCounts[3]), StatusBar.ST_AMMO0X + 24, StatusBar.ST_AMMO3Y, 3);
+
+    this.drawNumberRightAligned(stats.maxAmmoCounts[0], StatusBar.ST_MAXAMMO0X + 24, StatusBar.ST_AMMO0Y, 3);
+    this.drawNumberRightAligned(stats.maxAmmoCounts[1], StatusBar.ST_MAXAMMO0X + 24, StatusBar.ST_AMMO1Y, 3);
+    this.drawNumberRightAligned(stats.maxAmmoCounts[2], StatusBar.ST_MAXAMMO0X + 24, StatusBar.ST_AMMO2Y, 3);
+    this.drawNumberRightAligned(stats.maxAmmoCounts[3], StatusBar.ST_MAXAMMO0X + 24, StatusBar.ST_AMMO3Y, 3);
 
     if (stats.message) {
       this.ctx.fillStyle = '#ffd54a';

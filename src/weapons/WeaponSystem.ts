@@ -11,11 +11,13 @@ import type { MapData } from '../level/types';
 import { ML_BLOCKING, ML_TWOSIDED } from '../level/types';
 import { findSectorAtPoint } from '../level';
 import { pRandom } from '../core';
+import { doomAngleToThreeRadians } from '../core/coordinates';
 import { isSkyFlat } from '../renderer/doomLighting';
 
 /**
  * Weapon types
  */
+/** Matches linuxdoom-1.10 `weapontype_t` order (doom1; doom2 adds supershotgun at 8). */
 export enum WeaponType {
   FIST = 0,
   PISTOL = 1,
@@ -25,6 +27,7 @@ export enum WeaponType {
   PLASMA_RIFLE = 5,
   BFG9000 = 6,
   CHAINSAW = 7,
+  SUPER_SHOTGUN = 8,
 }
 
 /**
@@ -62,12 +65,13 @@ export interface PlayerWeapon {
 /**
  * Weapon info database
  */
+/** Fire cooldown in tics before `READY` (approx. full attack state chain in original). */
 export const WEAPON_INFO: Map<WeaponType, WeaponInfo> = new Map([
   [WeaponType.FIST, {
     type: WeaponType.FIST,
     ammoPerShot: 0,
     damage: 10,
-    fireDelay: 10,
+    fireDelay: 22,
     sprite: 'PUNG',
   }],
   [WeaponType.PISTOL, {
@@ -83,7 +87,7 @@ export const WEAPON_INFO: Map<WeaponType, WeaponInfo> = new Map([
     ammoType: 'shells',
     ammoPerShot: 1,
     damage: 70,
-    fireDelay: 15,
+    fireDelay: 44,
     sprite: 'SHTG',
   }],
   [WeaponType.CHAINGUN, {
@@ -91,7 +95,7 @@ export const WEAPON_INFO: Map<WeaponType, WeaponInfo> = new Map([
     ammoType: 'bullets',
     ammoPerShot: 1,
     damage: 15,
-    fireDelay: 2,
+    fireDelay: 4,
     sprite: 'CHGG',
   }],
   [WeaponType.ROCKET_LAUNCHER, {
@@ -99,8 +103,39 @@ export const WEAPON_INFO: Map<WeaponType, WeaponInfo> = new Map([
     ammoType: 'rockets',
     ammoPerShot: 1,
     damage: 20,
-    fireDelay: 24,
+    fireDelay: 20,
     sprite: 'MISG',
+  }],
+  [WeaponType.PLASMA_RIFLE, {
+    type: WeaponType.PLASMA_RIFLE,
+    ammoType: 'cells',
+    ammoPerShot: 1,
+    damage: 5,
+    fireDelay: 23,
+    sprite: 'PLSG',
+  }],
+  [WeaponType.BFG9000, {
+    type: WeaponType.BFG9000,
+    ammoType: 'cells',
+    ammoPerShot: 40,
+    damage: 100,
+    fireDelay: 60,
+    sprite: 'BFGG',
+  }],
+  [WeaponType.CHAINSAW, {
+    type: WeaponType.CHAINSAW,
+    ammoPerShot: 0,
+    damage: 10,
+    fireDelay: 4,
+    sprite: 'SAWG',
+  }],
+  [WeaponType.SUPER_SHOTGUN, {
+    type: WeaponType.SUPER_SHOTGUN,
+    ammoType: 'shells',
+    ammoPerShot: 2,
+    damage: 80,
+    fireDelay: 55,
+    sprite: 'SHT2',
   }],
 ]);
 
@@ -227,7 +262,7 @@ export function consumeWeaponAmmo(player: Mobj, weaponType: WeaponType): void {
 }
 
 /** Distance along ray to first wall hit, or maxRange if none. */
-function getRayToWallDistance(
+export function getRayToWallDistance(
   startX: number,
   startY: number,
   dirX: number,
@@ -296,16 +331,25 @@ function rayCircleIntersection(
  */
 export function performHitscan(
   source: Mobj,
-  angle: number,
+  angleBam: number,
   damage: number,
-  spread: number = 0,
-  allMobjs: Mobj[] = [],
-  mapData?: MapData
+  allMobjs: Mobj[],
+  mapData: MapData | undefined,
+  options?: { accurate?: boolean; maxRange?: number; spreadBits?: number }
 ): HitscanResult | null {
-  const spreadOffset = spread === 0 ? 0 : ((pRandom() - pRandom()) / 255) * spread;
-  const finalAngle = angle + spreadOffset;
+  const accurate = options?.accurate ?? false;
+  const range = options?.maxRange ?? 2048;
+  const spreadBits = options?.spreadBits;
 
-  const range = 2048;
+  let ang = angleBam >>> 0;
+  if (spreadBits) {
+    ang = (ang + ((pRandom() - pRandom()) << spreadBits)) >>> 0;
+  } else if (!accurate) {
+    ang = (ang + ((pRandom() - pRandom()) << 18)) >>> 0;
+  }
+
+  const finalAngle = doomAngleToThreeRadians(ang);
+
   const startX = FixedToFloat(source.x);
   const startY = FixedToFloat(source.y);
   const startZ = FixedToFloat(source.z) + 32;

@@ -33,23 +33,42 @@ interface CachedWeaponSprite {
  * Weapon animation sequences
  */
 const WEAPON_FRAMES: Map<WeaponType, WeaponFrame[]> = new Map([
-  [WeaponType.FIST, [
-    { spriteName: 'PUNG', frame: 'A' },
-  ]],
+  [WeaponType.FIST, [{ spriteName: 'PUNG', frame: 'A' }]],
   [WeaponType.PISTOL, [
-    { spriteName: 'PISG', frame: 'A' }, // Ready
-    { spriteName: 'PISG', frame: 'B' }, // Firing
-    { spriteName: 'PISG', frame: 'C' }, // Firing
-    { spriteName: 'PISG', frame: 'D' }, // Firing flash
+    { spriteName: 'PISG', frame: 'A' },
+    { spriteName: 'PISG', frame: 'B' },
+    { spriteName: 'PISG', frame: 'C' },
+    { spriteName: 'PISG', frame: 'D' },
   ]],
   [WeaponType.SHOTGUN, [
-    { spriteName: 'SHTG', frame: 'A' }, // Ready
-    { spriteName: 'SHTG', frame: 'B' }, // Firing
-    { spriteName: 'SHTG', frame: 'C' }, // Firing
+    { spriteName: 'SHTG', frame: 'A' },
+    { spriteName: 'SHTG', frame: 'B' },
+    { spriteName: 'SHTG', frame: 'C' },
   ]],
   [WeaponType.CHAINGUN, [
-    { spriteName: 'CHGG', frame: 'A' }, // Ready
-    { spriteName: 'CHGG', frame: 'B' }, // Firing
+    { spriteName: 'CHGG', frame: 'A' },
+    { spriteName: 'CHGG', frame: 'B' },
+  ]],
+  [WeaponType.ROCKET_LAUNCHER, [
+    { spriteName: 'MISG', frame: 'A' },
+    { spriteName: 'MISG', frame: 'B' },
+  ]],
+  [WeaponType.PLASMA_RIFLE, [
+    { spriteName: 'PLSG', frame: 'A' },
+    { spriteName: 'PLSG', frame: 'B' },
+  ]],
+  [WeaponType.BFG9000, [
+    { spriteName: 'BFGG', frame: 'A' },
+    { spriteName: 'BFGG', frame: 'B' },
+  ]],
+  [WeaponType.CHAINSAW, [
+    { spriteName: 'SAWG', frame: 'A' },
+    { spriteName: 'SAWG', frame: 'B' },
+  ]],
+  [WeaponType.SUPER_SHOTGUN, [
+    { spriteName: 'SHT2', frame: 'A' },
+    { spriteName: 'SHT2', frame: 'B' },
+    { spriteName: 'SHT2', frame: 'C' },
   ]],
 ]);
 
@@ -57,6 +76,9 @@ const WEAPON_FLASH: Map<WeaponType, { spriteName: string; frame: string }> = new
   [WeaponType.PISTOL, { spriteName: 'PISF', frame: 'A' }],
   [WeaponType.SHOTGUN, { spriteName: 'SHTF', frame: 'A' }],
   [WeaponType.CHAINGUN, { spriteName: 'CHGF', frame: 'A' }],
+  [WeaponType.ROCKET_LAUNCHER, { spriteName: 'MISF', frame: 'A' }],
+  [WeaponType.PLASMA_RIFLE, { spriteName: 'PLSF', frame: 'A' }],
+  [WeaponType.BFG9000, { spriteName: 'BFGF', frame: 'A' }],
 ]);
 
 export class WeaponRenderer {

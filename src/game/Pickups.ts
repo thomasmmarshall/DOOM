@@ -261,6 +261,8 @@ function giveWeapon(
 
   if (!alreadyOwned) {
     player.player.weapons[weaponIndex] = true;
+    player.player.weaponJustPicked = true;
+    player.player.bonusCount = Math.max(player.player.bonusCount, 70);
     return { success: true, message };
   }
 

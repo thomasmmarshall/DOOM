@@ -7,6 +7,7 @@
 import type { Mobj } from './mobj';
 import { MobjFlags } from './mobj';
 import { pRandom } from '../core';
+import { FixedToFloat } from '../core/fixed';
 
 /**
  * Damage flags
@@ -67,6 +68,10 @@ export function damageActor(
 
   // Apply damage
   target.health -= actualDamage;
+
+  if (target.player && attacker && attacker !== target) {
+    target.player.damageAttacker = attacker;
+  }
 
   // Check if killed
   if (target.health <= 0) {
@@ -145,16 +150,31 @@ export function randomDamage(base: number, multiplier: number = 1): number {
 /**
  * Damage for specific weapon types
  */
-export const WeaponDamage = {
-  // Hitscan weapons
-  PISTOL: () => randomDamage(5),
-  SHOTGUN_PELLET: () => randomDamage(5), // Shotgun fires 7 pellets
-  CHAINGUN: () => randomDamage(5),
+/** Pistol / chaingun / shotgun pellet: `5 * (P_Random % 3 + 1)` (linuxdoom p_pspr.c). */
+export function gunshotPelletDamage(): number {
+  return 5 * ((pRandom() % 3) + 1);
+}
 
-  // Melee
-  FIST: () => randomDamage(2, 5), // 2 * ((rand % 8) + 1) * 5
-  CHAINSAW: () => randomDamage(2, 5),
-  BERSERK_FIST: () => randomDamage(2, 50), // Berserk pack multiplies by 10
+/** Fist / berserk fist: `(P_Random % 10 + 1) << 1`, ×10 if berserk. */
+export function punchDamage(berserk: boolean): number {
+  let d = (pRandom() % 10 + 1) << 1;
+  if (berserk) d *= 10;
+  return d;
+}
+
+/** Chainsaw: `2 * (P_Random % 10 + 1)`. */
+export function chainsawDamage(): number {
+  return 2 * (pRandom() % 10 + 1);
+}
+
+export const WeaponDamage = {
+  PISTOL: () => gunshotPelletDamage(),
+  SHOTGUN_PELLET: () => gunshotPelletDamage(),
+  CHAINGUN: () => gunshotPelletDamage(),
+
+  FIST: (berserk?: boolean) => punchDamage(!!berserk),
+  CHAINSAW: () => chainsawDamage(),
+  BERSERK_FIST: (b: boolean) => punchDamage(b),
 
   // Projectile weapons
   ROCKET: 20,      // Plus splash damage
@@ -179,29 +199,22 @@ export function splashDamage(
   attacker?: Mobj,
   allActors: Mobj[] = []
 ): void {
-  const sourceX = source.x;
-  const sourceY = source.y;
-  const sourceZ = source.z;
+  const sourceX = FixedToFloat(source.x);
+  const sourceY = FixedToFloat(source.y);
+  const sourceZ = FixedToFloat(source.z);
 
   for (const target of allActors) {
-    // Don't damage self or attacker
     if (target === source || target === attacker) continue;
-
-    // Can't damage non-shootable things
     if (!(target.flags & MobjFlags.SHOOTABLE)) continue;
 
-    // Calculate distance
-    const dx = target.x - sourceX;
-    const dy = target.y - sourceY;
-    const dz = target.z - sourceZ;
-    const dist = Math.sqrt(
-      (dx * dx + dy * dy + dz * dz) / (65536 * 65536)
-    ); // Convert from fixed-point
+    const dx = FixedToFloat(target.x) - sourceX;
+    const dy = FixedToFloat(target.y) - sourceY;
+    const dz = FixedToFloat(target.z) - sourceZ;
+    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
     if (dist > radius) continue;
 
-    // Damage falls off with distance
-    const falloff = 1 - (dist / radius);
+    const falloff = 1 - dist / radius;
     const actualDamage = Math.floor(damage * falloff);
 
     if (actualDamage > 0) {

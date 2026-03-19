@@ -19,7 +19,8 @@ import type { MapData } from './level';
 import { DoorManager, PlatformManager } from './sectors';
 import { StatusBar, TitleScreen, BorderFrame, MainMenu, type PlayerStats } from './ui';
 import { createPlayerWeapon, updateWeapon, fireWeapon, WeaponType, performHitscan, WEAPON_INFO, switchPlayerWeapon, canPlayerUseWeapon, consumeWeaponAmmo } from './weapons/WeaponSystem';
-import { damageActor, WeaponDamage } from './game/Damage';
+import { spawnPlayerProjectile } from './weapons/projectiles';
+import { damageActor, gunshotPelletDamage, punchDamage, chainsawDamage } from './game/Damage';
 import { tryPickupItem, checkItemCollision } from './game/Pickups';
 import { updateMonster } from './ai';
 import { MusicPlayer, SoundManager } from './audio';
@@ -67,6 +68,8 @@ class DoomGame {
   private borderFrame?: BorderFrame;
   /** Tick until which to show muzzle flash (game-tick driven, not frame). */
   private weaponFlashUntilTick: number = 0;
+  /** ST_Ticker `st_oldhealth`: health at end of previous gametic. */
+  private playerHealthAtLastTickEnd: number = 100;
 
   constructor() {
     // Initialize trigonometry tables
@@ -275,30 +278,12 @@ class DoomGame {
     }
   }
 
-  private getCurrentAmmo(): number {
-    if (!this.playerMobj?.player?.weapon || !this.playerMobj.player) {
-      return 0;
-    }
-
-    const weaponInfo = WEAPON_INFO.get(this.playerMobj.player.weapon.currentWeapon);
-    if (!weaponInfo?.ammoType) {
-      return 0;
-    }
-
-    return this.playerMobj.player.ammo[weaponInfo.ammoType];
-  }
-
-  private getCurrentMaxAmmo(): number {
-    if (!this.playerMobj?.player?.weapon || !this.playerMobj.player) {
-      return 0;
-    }
-
-    const weaponInfo = WEAPON_INFO.get(this.playerMobj.player.weapon.currentWeapon);
-    if (!weaponInfo?.ammoType) {
-      return 0;
-    }
-
-    return this.playerMobj.player.maxAmmo[weaponInfo.ammoType];
+  /** Null when ready weapon has `am_noammo` (st_lib largeammo / skip draw). */
+  private getReadyAmmoForHud(): number | null {
+    if (!this.playerMobj?.player?.weapon) return null;
+    const info = WEAPON_INFO.get(this.playerMobj.player.weapon.currentWeapon);
+    if (!info?.ammoType) return null;
+    return this.playerMobj.player.ammo[info.ammoType];
   }
 
   private updateSectorSpecials(): void {
@@ -492,6 +477,7 @@ class DoomGame {
         // Initialize player weapon
         if (this.playerMobj.player) {
           this.playerMobj.player.weapon = createPlayerWeapon();
+          this.playerHealthAtLastTickEnd = this.playerMobj.health;
         }
 
         console.log(`Player created at (${playerStart.x}, ${playerStart.y}, ${playerStart.z}) angle ${playerStart.angle}°`);
@@ -540,13 +526,24 @@ class DoomGame {
           }
           console.log(`${this.useOrbitControls ? 'Orbit controls' : 'First-person mode'} enabled`);
         } else if (e.code.startsWith('Digit') && this.playerMobj?.player?.weapon) {
-          // Weapon switching (1-7)
-          const digit = parseInt(e.code.substring(5));
-          if (digit >= 1 && digit <= 7) {
-            const weaponType = digit - 1; // Convert to WeaponType enum (0-6)
-            if (switchPlayerWeapon(this.playerMobj, weaponType)) {
-              console.log(`Switching to weapon ${digit}`);
+          const digit = parseInt(e.code.substring(5), 10);
+          const mobj = this.playerMobj;
+          if (!mobj.player) return;
+          if (digit === 1) {
+            const p = mobj.player;
+            const w = p.weapon!;
+            if (
+              p.weapons[WeaponType.CHAINSAW] &&
+              !(w.currentWeapon === WeaponType.CHAINSAW && (p.powerups.berserk ?? 0) !== 0)
+            ) {
+              switchPlayerWeapon(mobj, WeaponType.CHAINSAW);
+            } else {
+              switchPlayerWeapon(mobj, WeaponType.FIST);
             }
+          } else if (digit >= 2 && digit <= 7) {
+            switchPlayerWeapon(mobj, (digit - 1) as WeaponType);
+          } else if (digit === 8 && mobj.player.weapons[WeaponType.SUPER_SHOTGUN]) {
+            switchPlayerWeapon(mobj, WeaponType.SUPER_SHOTGUN);
           }
         }
       });
@@ -572,15 +569,17 @@ class DoomGame {
     const oldX = FixedToFloat(this.playerMobj.x);
     const oldY = FixedToFloat(this.playerMobj.y);
 
-    // Get input for this tick
+    const healthPrevTick = this.playerHealthAtLastTickEnd;
     const cmd = this.inputManager.buildTicCmd();
+    const refire = (this.previousButtons & Button.ATTACK) !== 0;
+    const attackHeld = (cmd.buttons & Button.ATTACK) !== 0;
 
     if ((cmd.buttons & Button.USE) && !(this.previousButtons & Button.USE) && this.triggerSystem) {
       this.tryUseAction();
     }
 
-    if ((cmd.buttons & Button.ATTACK) && !(this.previousButtons & Button.ATTACK)) {
-      this.firePlayerWeapon();
+    if (cmd.buttons & Button.ATTACK) {
+      this.firePlayerWeapon(refire);
     }
 
     this.previousButtons = cmd.buttons;
@@ -657,15 +656,19 @@ class DoomGame {
     }
 
     if (this.playerMobj.player) {
-      if (this.playerMobj.player.bonusCount > 0) {
-        this.playerMobj.player.bonusCount--;
-      } else if (this.playerMobj.player.message) {
-        this.playerMobj.player.message = '';
+      const p = this.playerMobj.player;
+      if (p.damageCount > 0) {
+        p.damageCount--;
+      }
+      if (p.bonusCount > 0) {
+        p.bonusCount--;
+      } else if (p.message) {
+        p.message = '';
       }
 
-      for (const [powerup, duration] of Object.entries(this.playerMobj.player.powerups)) {
+      for (const [powerup, duration] of Object.entries(p.powerups)) {
         if (duration > 0) {
-          this.playerMobj.player.powerups[powerup] = duration - 1;
+          p.powerups[powerup] = duration - 1;
         }
       }
     }
@@ -674,27 +677,43 @@ class DoomGame {
 
     this.levelRenderer?.syncWorldMobjs(this.thinkerManager.getAllMobjs());
 
-    // Update HUD
     if (this.statusBar && this.playerMobj.player) {
       const p = this.playerMobj.player;
+      const weaponJustPickedFace = !!p.weaponJustPicked;
+      if (p.weaponJustPicked) {
+        p.weaponJustPicked = false;
+      }
       const stats: PlayerStats = {
         health: this.playerMobj.health,
         armor: p.armor,
-        ammo: this.getCurrentAmmo(),
-        maxAmmo: this.getCurrentMaxAmmo(),
-        ammoCounts: [
-          p.ammo.bullets,
-          p.ammo.shells,
-          p.ammo.rockets,
-          p.ammo.cells,
-        ],
+        ammo: this.getReadyAmmoForHud(),
+        ammoCounts: [p.ammo.bullets, p.ammo.shells, p.ammo.rockets, p.ammo.cells],
+        maxAmmoCounts: [p.maxAmmo.bullets, p.maxAmmo.shells, p.maxAmmo.rockets, p.maxAmmo.cells],
         keys: p.keys,
         weapons: p.weapons,
         currentWeapon: p.weapon?.currentWeapon ?? 0,
         message: p.message,
+        faceContext: {
+          healthPrevTick,
+          damageCount: p.damageCount,
+          bonusCount: p.bonusCount,
+          weaponJustPicked: weaponJustPickedFace,
+          attackHeld,
+          invulnTics: p.powerups.invulnerability ?? 0,
+          angleBam: this.playerMobj.angle,
+          playerX: FixedToFloat(this.playerMobj.x),
+          playerY: FixedToFloat(this.playerMobj.y),
+          playerMo: this.playerMobj,
+          damageAttacker: p.damageAttacker,
+        },
       };
       this.statusBar.render(stats);
+      if (p.damageAttacker) {
+        p.damageAttacker = undefined;
+      }
     }
+
+    this.playerHealthAtLastTickEnd = this.playerMobj.health;
 
     // Log every second
     if (this.tickCount % TICRATE === 0) {
@@ -707,128 +726,101 @@ class DoomGame {
   }
 
   /**
-   * Fire player weapon
+   * Fire player weapon (`refire` = attack held last tic; first shot accurate for pistol/chaingun).
    */
-  private firePlayerWeapon(): void {
+  private firePlayerWeapon(refire: boolean): void {
     if (!this.playerMobj?.player?.weapon || !this.mapData) return;
 
-    const weapon = this.playerMobj.player.weapon;
-    if (!canPlayerUseWeapon(this.playerMobj, weapon.currentWeapon)) {
+    const player = this.playerMobj;
+    const pstate = player.player!;
+    const weapon = pstate.weapon!;
+    if (!canPlayerUseWeapon(player, weapon.currentWeapon)) {
       return;
     }
-    const success = fireWeapon(weapon, this.playerMobj);
+    if (!fireWeapon(weapon, player)) {
+      return;
+    }
 
-    if (success) {
-      this.weaponFlashUntilTick = this.tickCount + 4; // ~4 ticks of muzzle flash at 35 Hz
-      this.noiseOrigin = {
-        x: FixedToFloat(this.playerMobj.x),
-        y: FixedToFloat(this.playerMobj.y),
-      };
-      if (weapon.currentWeapon === WeaponType.SHOTGUN) {
-        this.soundManager?.play('shotgun', 0.45);
-      } else if (weapon.currentWeapon === WeaponType.CHAINGUN) {
-        this.soundManager?.play('chaingun', 0.35);
-      } else if (weapon.currentWeapon === WeaponType.ROCKET_LAUNCHER) {
-        this.soundManager?.play('rocket', 0.45);
-      } else {
-        this.soundManager?.play('pistol', 0.35);
+    this.weaponFlashUntilTick = this.tickCount + 4;
+    this.noiseOrigin = { x: FixedToFloat(player.x), y: FixedToFloat(player.y) };
+
+    const w = weapon.currentWeapon;
+    if (w === WeaponType.SHOTGUN || w === WeaponType.SUPER_SHOTGUN) {
+      this.soundManager?.play('shotgun', 0.45);
+    } else if (w === WeaponType.CHAINGUN) {
+      this.soundManager?.play('chaingun', 0.35);
+    } else if (w === WeaponType.ROCKET_LAUNCHER) {
+      this.soundManager?.play('rocket', 0.45);
+    } else if (w === WeaponType.PLASMA_RIFLE || w === WeaponType.BFG9000) {
+      this.soundManager?.play('chaingun', 0.25);
+    } else {
+      this.soundManager?.play('pistol', 0.35);
+    }
+
+    const allMobjs = this.thinkerManager.getAllMobjs();
+    const angleBam = player.angle;
+    const accurate = !refire;
+
+    const applyHitscan = (result: ReturnType<typeof performHitscan>): void => {
+      if (result?.hit && result.target) {
+        const dmg = damageActor(result.target, result.damage, player);
+        if (dmg.killed) this.playDeathSound(result.target.type);
+        this.spawnPuff(result.hitPoint.x, result.hitPoint.y, result.hitPoint.z);
+      } else if (result && !result.hit) {
+        this.spawnPuff(result.hitPoint.x, result.hitPoint.y, result.hitPoint.z);
       }
+    };
 
-      // Get all mobjs from thinker manager
-      const allMobjs = this.thinkerManager.getAllMobjs();
-
-      // Perform hitscan for applicable weapons
-      const weaponInfo = WEAPON_INFO.get(weapon.currentWeapon);
-      if (!weaponInfo) return;
-
-      // Calculate firing angle (convert from DOOM angle to radians)
-      const fireAngle = doomAngleToThreeRadians(this.playerMobj.angle);
-
-      // Perform hitscan based on weapon type
-      if (weapon.currentWeapon === WeaponType.PISTOL) {
-        const damage = WeaponDamage.PISTOL();
-        const result = performHitscan(this.playerMobj, fireAngle, damage, 0, allMobjs, this.mapData);
-
-        if (result?.hit && result.target) {
-          const dmg = damageActor(result.target, result.damage, this.playerMobj);
-          if (dmg.killed) this.playDeathSound(result.target.type);
-          this.spawnPuff(result.hitPoint.x, result.hitPoint.y, result.hitPoint.z);
-        } else if (result && !result.hit) {
-          this.spawnPuff(result.hitPoint.x, result.hitPoint.y, result.hitPoint.z);
-        }
-        consumeWeaponAmmo(this.playerMobj, weapon.currentWeapon);
-      } else if (weapon.currentWeapon === WeaponType.SHOTGUN) {
-        // Shotgun fires 7 pellets
-        let hits = 0;
-        for (let i = 0; i < 7; i++) {
-          const damage = WeaponDamage.SHOTGUN_PELLET();
-          const spread = 0.1; // Some spread for shotgun
-          const result = performHitscan(this.playerMobj, fireAngle, damage, spread, allMobjs, this.mapData);
-
-          if (result?.hit && result.target) {
-            const dmg = damageActor(result.target, result.damage, this.playerMobj);
-            if (dmg.killed) this.playDeathSound(result.target.type);
-            hits++;
-            this.spawnPuff(result.hitPoint.x, result.hitPoint.y, result.hitPoint.z);
-          }
-        }
-
-        if (hits > 0) {
-          console.log(`Shotgun hit with ${hits}/7 pellets!`);
-        }
-        consumeWeaponAmmo(this.playerMobj, weapon.currentWeapon);
-      } else if (weapon.currentWeapon === WeaponType.CHAINGUN) {
-        const damage = WeaponDamage.CHAINGUN();
-        const result = performHitscan(this.playerMobj, fireAngle, damage, 0.02, allMobjs, this.mapData);
-
-        if (result?.hit && result.target) {
-          const dmg = damageActor(result.target, result.damage, this.playerMobj);
-          if (dmg.killed) this.playDeathSound(result.target.type);
-          this.spawnPuff(result.hitPoint.x, result.hitPoint.y, result.hitPoint.z);
-        } else if (result && !result.hit) {
-          this.spawnPuff(result.hitPoint.x, result.hitPoint.y, result.hitPoint.z);
-        }
-        consumeWeaponAmmo(this.playerMobj, weapon.currentWeapon);
-      } else if (weapon.currentWeapon === WeaponType.FIST) {
-        // Melee attack - check close range
-        const meleeRange = 64; // DOOM's melee range
-        const damage = WeaponDamage.FIST();
-
-        // Find closest enemy in melee range
-        let closestDist = meleeRange;
-        let closestTarget: typeof allMobjs[0] | undefined;
-
-        for (const target of allMobjs) {
-          if (target === this.playerMobj) continue;
-          if (!(target.flags & 0x4)) continue; // MobjFlags.SHOOTABLE
-          if (target.health <= 0) continue;
-
-          const dx = FixedToFloat(target.x - this.playerMobj.x);
-          const dy = FixedToFloat(target.y - this.playerMobj.y);
-          const dist = Math.sqrt(dx * dx + dy * dy);
-
-          if (dist < closestDist) {
-            closestDist = dist;
-            closestTarget = target;
-          }
-        }
-
-        if (closestTarget) {
-          const dmg = damageActor(closestTarget, damage, this.playerMobj);
-          if (dmg.killed) this.playDeathSound(closestTarget.type);
-        }
-      } else if (weapon.currentWeapon === WeaponType.ROCKET_LAUNCHER) {
-        const damage = WeaponDamage.ROCKET;
-        const result = performHitscan(this.playerMobj, fireAngle, damage, 0, allMobjs, this.mapData);
-        if (result?.hit && result.target) {
-          const dmg = damageActor(result.target, result.damage, this.playerMobj);
-          if (dmg.killed) this.playDeathSound(result.target.type);
-          this.spawnPuff(result.hitPoint.x, result.hitPoint.y, result.hitPoint.z);
-        } else if (result && !result.hit) {
-          this.spawnPuff(result.hitPoint.x, result.hitPoint.y, result.hitPoint.z);
-        }
-        consumeWeaponAmmo(this.playerMobj, weapon.currentWeapon);
+    if (w === WeaponType.PISTOL) {
+      applyHitscan(performHitscan(player, angleBam, gunshotPelletDamage(), allMobjs, this.mapData, { accurate }));
+      consumeWeaponAmmo(player, w);
+    } else if (w === WeaponType.CHAINGUN) {
+      applyHitscan(performHitscan(player, angleBam, gunshotPelletDamage(), allMobjs, this.mapData, { accurate }));
+      consumeWeaponAmmo(player, w);
+    } else if (w === WeaponType.SHOTGUN) {
+      for (let i = 0; i < 7; i++) {
+        applyHitscan(
+          performHitscan(player, angleBam, gunshotPelletDamage(), allMobjs, this.mapData, { spreadBits: 18 })
+        );
       }
+      consumeWeaponAmmo(player, w);
+    } else if (w === WeaponType.SUPER_SHOTGUN) {
+      for (let i = 0; i < 20; i++) {
+        applyHitscan(
+          performHitscan(player, angleBam, gunshotPelletDamage(), allMobjs, this.mapData, { spreadBits: 19 })
+        );
+      }
+      consumeWeaponAmmo(player, w);
+    } else if (w === WeaponType.FIST) {
+      const berserk = (pstate.powerups.berserk ?? 0) !== 0;
+      applyHitscan(
+        performHitscan(player, angleBam, punchDamage(berserk), allMobjs, this.mapData, {
+          accurate: false,
+          maxRange: 64,
+        })
+      );
+    } else if (w === WeaponType.CHAINSAW) {
+      applyHitscan(
+        performHitscan(player, angleBam, chainsawDamage(), allMobjs, this.mapData, {
+          accurate: false,
+          maxRange: 65,
+        })
+      );
+    } else if (w === WeaponType.ROCKET_LAUNCHER) {
+      spawnPlayerProjectile(player, 'rocket', this.mapData, () => this.thinkerManager.getAllMobjs(), (m, t) =>
+        this.addWorldMobj(m, t)
+      );
+      consumeWeaponAmmo(player, w);
+    } else if (w === WeaponType.PLASMA_RIFLE) {
+      spawnPlayerProjectile(player, 'plasma', this.mapData, () => this.thinkerManager.getAllMobjs(), (m, t) =>
+        this.addWorldMobj(m, t)
+      );
+      consumeWeaponAmmo(player, w);
+    } else if (w === WeaponType.BFG9000) {
+      spawnPlayerProjectile(player, 'bfg', this.mapData, () => this.thinkerManager.getAllMobjs(), (m, t) =>
+        this.addWorldMobj(m, t)
+      );
+      consumeWeaponAmmo(player, w);
     }
   }
 

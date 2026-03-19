@@ -125,6 +125,10 @@ export interface PlayerState {
   message: string;
   damageCount: number;
   bonusCount: number;
+  /** Last attacker (for status face direction); cleared when processed. */
+  damageAttacker?: Mobj;
+  /** True after picking a new weapon (evil grin on face widget). */
+  weaponJustPicked?: boolean;
 }
 
 /**
@@ -144,7 +148,7 @@ export function createPlayerMobj(x: Fixed, y: Fixed, z: Fixed, angle: Angle): Mo
     floorz: z,
     ceilingz: z + (56 << 16),
     flags: MobjFlags.SOLID | MobjFlags.SHOOTABLE | MobjFlags.DROPOFF | MobjFlags.PICKUP | MobjFlags.SLIDE,
-    health: 150,
+    health: 100,
     type: MobjType.PLAYER,
     sprite: 'PLAY',
     frame: 'A',
@@ -165,7 +169,7 @@ export function createPlayerMobj(x: Fixed, y: Fixed, z: Fixed, angle: Angle): Mo
         rockets: 50,
         cells: 300,
       },
-      weapons: [true, true, false, false, false, false, false, false],
+      weapons: [true, true, false, false, false, false, false, false, false],
       armor: 0,
       armorType: 0,
       keys: {
