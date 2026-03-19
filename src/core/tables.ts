@@ -24,8 +24,8 @@ export type Angle = number; // 32-bit unsigned integer
 // Sine lookup table (10240 entries)
 export const finesine: Fixed[] = new Array((5 * FINEANGLES) / 4);
 
-// Cosine is just sine shifted by 90 degrees (FINEANGLES/4)
-export const finecosine: Fixed[] = finesine.slice(FINEANGLES / 4);
+/** Same indices as linuxdoom `finecosine` (alias into finesine at +FINEANGLES/4). Filled in initTables(). */
+export const finecosine: Fixed[] = new Array(FINEANGLES);
 
 // Tangent lookup table (4096 entries)
 export const finetangent: Fixed[] = new Array(FINEANGLES / 2);
@@ -49,6 +49,11 @@ export function initTables(): void {
     finetangent[i] = FloatToFixed(Math.tan(angle));
   }
 
+  // Match r_main.c: finecosine = &finesine[FINEANGLES/4] (must not slice before finesine is populated)
+  for (let i = 0; i < FINEANGLES; i++) {
+    finecosine[i] = finesine[i + FINEANGLES / 4];
+  }
+
   console.log('Trigonometry tables initialized');
 }
 
@@ -64,8 +69,9 @@ export function FineSine(angle: number): Fixed {
  * Get cosine from angle using lookup table
  */
 export function FineCosine(angle: number): Fixed {
-  const index = ((angle >> ANGLETOFINESHIFT) + FINEANGLES / 4) & FINEMASK;
-  return finesine[index];
+  const idx = (angle >> ANGLETOFINESHIFT) & FINEMASK;
+  // linuxdoom: finecosine[i] == finesine[i + FINEANGLES/4]; do not & FINEMASK the sum (wraps wrong past 6144)
+  return finesine[idx + FINEANGLES / 4];
 }
 
 /**
