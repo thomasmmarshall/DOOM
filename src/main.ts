@@ -11,13 +11,13 @@ import { loadWAD } from './demo';
 import { MapParser } from './level';
 import { PaletteLoader } from './graphics';
 import { LevelRenderer, WeaponRenderer } from './renderer';
-import { doomToThree, doomAngleToThreeRadians, initTables, GameTicker, TICRATE, IntToFixed, FixedToFloat, DegreesToAngle } from './core';
+import { doomToThree, doomAngleToThreeRadians, initTables, GameTicker, TICRATE, IntToFixed, FixedToFloat, DegreesToAngle, FloatToFixed } from './core';
 import { InputManager, Button } from './input';
 import { createPlayerMobj, type Mobj, MobjFlags, ThinkerManager, TriggerSystem, ThingSpawner } from './game';
 import { movePlayer, applyFriction, applyGravity, applyZMomentum, calculateViewZ, applyCollision } from './physics';
 import type { MapData } from './level';
 import { DoorManager, PlatformManager } from './sectors';
-import { StatusBar, type PlayerStats } from './ui';
+import { StatusBar, TitleScreen, type PlayerStats } from './ui';
 import { createPlayerWeapon, updateWeapon, fireWeapon, WeaponType, performHitscan, WEAPON_INFO, switchPlayerWeapon, canPlayerUseWeapon, consumeWeaponAmmo } from './weapons/WeaponSystem';
 import { damageActor, WeaponDamage } from './game/Damage';
 import { tryPickupItem, checkItemCollision } from './game/Pickups';
@@ -46,7 +46,7 @@ class DoomGame {
   private inputManager: InputManager;
   private tickCount: number = 0;
   private playerMobj?: Mobj;
-  private useOrbitControls: boolean = true;
+  private useOrbitControls: boolean = false;
   private mapData?: MapData;
   private thinkerManager: ThinkerManager;
   private doorManager?: DoorManager;
@@ -109,6 +109,10 @@ class DoomGame {
     window.addEventListener('resize', () => this.onResize());
     this.renderer.domElement.addEventListener('pointerdown', () => {
       void this.musicPlayer?.activate();
+      // Request pointer lock on click (required when starting in first-person - browser needs user gesture)
+      if (!this.useOrbitControls && this.playerMobj && !document.pointerLockElement) {
+        this.inputManager.requestPointerLock();
+      }
     });
 
     // Update info
@@ -157,6 +161,46 @@ class DoomGame {
 
   private addWorldMobj(mobj: Mobj, thinker?: (mobj: Mobj) => void): void {
     this.thinkerManager.addThinker(mobj, thinker ?? (() => {}));
+  }
+
+  private spawnPuff(x: number, y: number, z: number): void {
+    const puffFrames = ['A', 'B', 'C', 'D'];
+    const puff: Mobj = {
+      x: FloatToFixed(x),
+      y: FloatToFixed(y),
+      z: FloatToFixed(z),
+      angle: 0,
+      momx: 0,
+      momy: 0,
+      momz: IntToFixed(1),
+      radius: IntToFixed(16),
+      height: IntToFixed(16),
+      floorz: FloatToFixed(z),
+      ceilingz: FloatToFixed(z + 64),
+      flags: 0,
+      health: 1,
+      type: 0,
+      sprite: 'PUFF',
+      frame: 'A',
+      rotation: 0,
+    };
+    let tics = 16;
+    this.addWorldMobj(puff, () => {
+      tics--;
+      puff.frame = puffFrames[Math.max(0, 4 - Math.ceil(tics / 4))] ?? 'D';
+      puff.z += puff.momz;
+      if (tics <= 0) puff.removed = true;
+    });
+  }
+
+  private playDeathSound(type: number): void {
+    const sound =
+      type === 3001 ? 'impDeath' :
+      type === 3002 ? 'demonDeath' :
+      type === 9 ? 'shotgunGuyDeath' :
+      type === 3004 ? 'zombieDeath' :
+      'monsterDeath';
+    this.soundManager?.play(sound, 0.5);
   }
 
   private handlePlayerDeath(): void {
@@ -311,7 +355,31 @@ class DoomGame {
       const colormap = PaletteLoader.loadColormap(colormapData);
       const rgbaPalette = PaletteLoader.paletteToRGBA(palette, 255);
 
-      // Find first map
+      // Show title screen first (original DOOM flow: GS_DEMOSCREEN)
+      const titleScreen = new TitleScreen(wad, rgbaPalette, () => {
+        titleScreen.hide();
+        void this.loadLevel(wad, palette, colormap, rgbaPalette);
+      });
+      await titleScreen.init();
+      titleScreen.show();
+      titleScreen.startRenderLoop();
+      this.updateInfo('Press any key or click to start');
+
+      // Wait for user to dismiss title before loading level
+      return;
+    } catch (error) {
+      console.error('Error initializing game:', error);
+      this.updateInfo(`Error: ${error}`);
+    }
+  }
+
+  private async loadLevel(
+    wad: Awaited<ReturnType<typeof loadWAD>>,
+    palette: Uint8Array,
+    colormap: Uint8Array,
+    rgbaPalette: Uint8ClampedArray
+  ): Promise<void> {
+    try {
       const maps = wad.findMapLumps();
       if (maps.length === 0) {
         throw new Error('No maps found in WAD');
@@ -393,11 +461,19 @@ class DoomGame {
         this.controls.update();
       }
 
-      this.updateInfo(`${mapName} loaded! Press F to toggle first-person mode. WASD to move, mouse to look. Press P to start physics.`);
+      this.updateInfo(`${mapName} - WASD to move, mouse to look, SPACE to use, 1-7 weapons, CTRL to fire.`);
+      this.infoElement.style.display = 'none';
       console.log('Level rendering complete');
 
-      // Set up ticker (but don't start it yet - user can press P to start)
+      // Set up ticker and start immediately
       this.ticker = new GameTicker((tick) => this.gameTick(tick));
+      this.ticker.start();
+
+      // Start in first-person mode with pointer lock
+      this.controls.enabled = false;
+      if (this.playerMobj) {
+        this.inputManager.requestPointerLock();
+      }
 
       // Add key listeners
       window.addEventListener('keydown', (e) => {
@@ -410,12 +486,7 @@ class DoomGame {
           return;
         }
 
-        if (e.code === 'KeyP' && this.ticker) {
-          this.ticker.start();
-          console.log('Game ticker started');
-          this.updateInfo(`${mapName} - Physics active. WASD to move, mouse to look, SPACE to use, 1-7 weapons, CTRL to fire.`);
-          this.infoElement.style.display = 'none';
-        } else if (e.code === 'KeyF') {
+        if (e.code === 'KeyF') {
           this.useOrbitControls = !this.useOrbitControls;
           this.controls.enabled = this.useOrbitControls;
           if (!this.useOrbitControls && this.playerMobj) {
@@ -627,8 +698,11 @@ class DoomGame {
         const result = performHitscan(this.playerMobj, fireAngle, damage, 0, allMobjs, this.mapData);
 
         if (result?.hit && result.target) {
-          damageActor(result.target, result.damage, this.playerMobj);
-          console.log(`Pistol hit for ${result.damage} damage!`);
+          const dmg = damageActor(result.target, result.damage, this.playerMobj);
+          if (dmg.killed) this.playDeathSound(result.target.type);
+          this.spawnPuff(result.hitPoint.x, result.hitPoint.y, result.hitPoint.z);
+        } else if (result && !result.hit) {
+          this.spawnPuff(result.hitPoint.x, result.hitPoint.y, result.hitPoint.z);
         }
         consumeWeaponAmmo(this.playerMobj, weapon.currentWeapon);
       } else if (weapon.currentWeapon === WeaponType.SHOTGUN) {
@@ -640,8 +714,10 @@ class DoomGame {
           const result = performHitscan(this.playerMobj, fireAngle, damage, spread, allMobjs, this.mapData);
 
           if (result?.hit && result.target) {
-            damageActor(result.target, result.damage, this.playerMobj);
+            const dmg = damageActor(result.target, result.damage, this.playerMobj);
+            if (dmg.killed) this.playDeathSound(result.target.type);
             hits++;
+            this.spawnPuff(result.hitPoint.x, result.hitPoint.y, result.hitPoint.z);
           }
         }
 
@@ -654,8 +730,11 @@ class DoomGame {
         const result = performHitscan(this.playerMobj, fireAngle, damage, 0.02, allMobjs, this.mapData);
 
         if (result?.hit && result.target) {
-          damageActor(result.target, result.damage, this.playerMobj);
-          console.log(`Chaingun hit for ${result.damage} damage!`);
+          const dmg = damageActor(result.target, result.damage, this.playerMobj);
+          if (dmg.killed) this.playDeathSound(result.target.type);
+          this.spawnPuff(result.hitPoint.x, result.hitPoint.y, result.hitPoint.z);
+        } else if (result && !result.hit) {
+          this.spawnPuff(result.hitPoint.x, result.hitPoint.y, result.hitPoint.z);
         }
         consumeWeaponAmmo(this.playerMobj, weapon.currentWeapon);
       } else if (weapon.currentWeapon === WeaponType.FIST) {
@@ -683,14 +762,18 @@ class DoomGame {
         }
 
         if (closestTarget) {
-          damageActor(closestTarget, damage, this.playerMobj);
-          console.log(`Fist hit for ${damage} damage!`);
+          const dmg = damageActor(closestTarget, damage, this.playerMobj);
+          if (dmg.killed) this.playDeathSound(closestTarget.type);
         }
       } else if (weapon.currentWeapon === WeaponType.ROCKET_LAUNCHER) {
         const damage = WeaponDamage.ROCKET;
         const result = performHitscan(this.playerMobj, fireAngle, damage, 0, allMobjs, this.mapData);
         if (result?.hit && result.target) {
-          damageActor(result.target, result.damage, this.playerMobj);
+          const dmg = damageActor(result.target, result.damage, this.playerMobj);
+          if (dmg.killed) this.playDeathSound(result.target.type);
+          this.spawnPuff(result.hitPoint.x, result.hitPoint.y, result.hitPoint.z);
+        } else if (result && !result.hit) {
+          this.spawnPuff(result.hitPoint.x, result.hitPoint.y, result.hitPoint.z);
         }
         consumeWeaponAmmo(this.playerMobj, weapon.currentWeapon);
       }
