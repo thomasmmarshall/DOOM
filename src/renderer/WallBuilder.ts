@@ -184,24 +184,31 @@ export class WallBuilder {
       }
 
       if (frontSide.midtexture !== '-') {
-        walls.push(
-          this.createWall(
-            lineIndex,
-            linedef.sidenum[0],
-            v1.x,
-            v1.y,
-            v2.x,
-            v2.y,
-            frontSector.floorheight,
-            frontSector.ceilingheight,
-            frontSide.midtexture,
-            frontSector.lightlevel,
-            frontSide.textureoffset,
-            frontSide.rowoffset,
-            false,
-            true
-          )
-        );
+        // Masked midtexture (switches, grates): clip to portal opening and peg like
+        // R_RenderMaskedSegRange (linuxdoom r_segs.c).
+        const bottomOpen = Math.max(frontSector.floorheight, backSector.floorheight);
+        const topOpen = Math.min(frontSector.ceilingheight, backSector.ceilingheight);
+        const pegBottom = (linedef.flags & ML_DONTPEGBOTTOM) !== 0;
+        if (topOpen > bottomOpen) {
+          walls.push(
+            this.createWall(
+              lineIndex,
+              linedef.sidenum[0],
+              v1.x,
+              v1.y,
+              v2.x,
+              v2.y,
+              bottomOpen,
+              topOpen,
+              frontSide.midtexture,
+              frontSector.lightlevel,
+              frontSide.textureoffset,
+              frontSide.rowoffset,
+              pegBottom,
+              true
+            )
+          );
+        }
       }
     }
 
