@@ -15,12 +15,21 @@ export async function loadTitlePicFromCustomOrWad(
     if (res.ok) {
       const blob = await res.blob();
       const bmp = await createImageBitmap(blob);
+      const W = 320;
+      const H = 200;
       const c = document.createElement('canvas');
-      c.width = bmp.width;
-      c.height = bmp.height;
+      c.width = W;
+      c.height = H;
       const ctx = c.getContext('2d')!;
-      ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(bmp, 0, 0);
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, W, H);
+      const scale = Math.min(W / bmp.width, H / bmp.height);
+      const dw = bmp.width * scale;
+      const dh = bmp.height * scale;
+      const dx = (W - dw) / 2;
+      const dy = (H - dh) / 2;
+      ctx.imageSmoothingEnabled = scale < 1;
+      ctx.drawImage(bmp, dx, dy, dw, dh);
       bmp.close();
       return { canvas: c, isCustom: true };
     }

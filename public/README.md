@@ -19,7 +19,7 @@ WAD files are archive files used by DOOM and DOOM II to store game data:
 
 ## Title splash / menu backdrop
 
-`assets/doom-threejs-titlepic.png` — 320×200 branding (chunky DOOM-style **Doom** + purple **ThreeJS**). If this file is present, it replaces the IWAD `TITLEPIC` on the splash and main menu, and the vanilla `M_DOOM` patch is not drawn on top.
+`assets/doom-threejs-titlepic.png` — splash / menu backdrop. If present, it replaces the IWAD `TITLEPIC`; any aspect ratio is letterboxed to 320×200. The vanilla `M_DOOM` patch is not drawn on top.
 
 Regenerate from the repo with Pillow installed: `npm run generate:titlepic` (or `python3 scripts/generate-doom-threejs-titlepic.py`).
 
