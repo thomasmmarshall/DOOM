@@ -5,6 +5,7 @@
 
 import type { Mobj } from '../game/mobj';
 import { MobjFlags } from '../game/mobj';
+import type { Angle } from '../core';
 import { doomAngleToThreeRadians, pointToAngleBam } from '../core/coordinates';
 import { pRandom } from '../core';
 import { FixedToFloat, FloatToFixed } from '../core/fixed';
@@ -97,7 +98,7 @@ export function spawnImpFireball(
     x: FloatToFixed(px),
     y: FloatToFixed(py),
     z: FloatToFixed(pz),
-    angle: angBam as unknown as number,
+    angle: angBam as Angle,
     momx: FloatToFixed(Math.cos(rad) * IMP_FIREBALL_SPEED),
     momy: FloatToFixed(Math.sin(rad) * IMP_FIREBALL_SPEED),
     momz: 0,

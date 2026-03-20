@@ -51,6 +51,15 @@ function horizontalToVerticalFov(horizontalFov: number, aspect: number): number 
   return THREE.MathUtils.radToDeg(verticalRadians);
 }
 
+function formatError(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  try {
+    return String(err);
+  } catch {
+    return 'Unknown error';
+  }
+}
+
 class DoomGame {
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
@@ -356,7 +365,7 @@ class DoomGame {
     }
 
     this.renderer.setSize(DOOM_INTERNAL_WIDTH, DOOM_VIEW_HEIGHT, false);
-    const container = document.getElementById('game-container');
+    const container = this.gameContainer ?? document.getElementById('game-container');
     if (container) {
       container.style.width = `${displayWidth}px`;
       container.style.height = `${displayHeight}px`;
@@ -657,7 +666,7 @@ class DoomGame {
       this.updateInfo('');
     } catch (error) {
       console.error('Error initializing game:', error);
-      this.updateInfo(`Error: ${error}`);
+      this.updateInfo(`Error: ${formatError(error)}`);
     }
   }
 
@@ -806,7 +815,7 @@ class DoomGame {
       }
     } catch (error) {
       console.error('Error initializing game:', error);
-      this.updateInfo(`Error: ${error}`);
+      this.updateInfo(`Error: ${formatError(error)}`);
     }
   }
 
@@ -973,8 +982,7 @@ class DoomGame {
 
     this.playerHealthAtLastTickEnd = this.playerMobj.health;
 
-    // Log every second
-    if (this.tickCount % TICRATE === 0) {
+    if (import.meta.env.DEV && this.tickCount % TICRATE === 0) {
       const x = FixedToFloat(this.playerMobj.x);
       const y = FixedToFloat(this.playerMobj.y);
       const z = FixedToFloat(this.playerMobj.z);

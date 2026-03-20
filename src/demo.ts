@@ -10,7 +10,8 @@ import { PaletteLoader, PatchDecoder, FlatLoader } from './graphics';
 export async function loadWAD(url: string): Promise<WADReader> {
   const response = await fetch(url);
   if (!response.ok) {
-    throw new Error(`Failed to load WAD: ${response.statusText}`);
+    const detail = response.statusText || 'no status text';
+    throw new Error(`Failed to load WAD (${response.status}): ${detail} — ${url}`);
   }
 
   const arrayBuffer = await response.arrayBuffer();

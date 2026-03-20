@@ -68,6 +68,11 @@ export class InputManager {
     document.addEventListener('pointerlockchange', () => {
       this.mouseLocked = document.pointerLockElement !== null;
     });
+
+    // Avoid stuck movement/shoot after alt-tab or losing focus (keys never get keyup).
+    window.addEventListener('blur', () => {
+      this.keys.clear();
+    });
   }
 
   /**

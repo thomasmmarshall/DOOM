@@ -95,9 +95,6 @@ export function damageActor(
     if (target.player) {
       target.player.damageCount = Math.min(100, target.player.damageCount + actualDamage);
     }
-
-    // Pain sound would play here
-    console.log(`${target.type} took ${actualDamage} damage (${target.health} HP remaining)`);
   }
 
   return { damageDealt: actualDamage, killed: false, overkill: 0 };
@@ -134,14 +131,11 @@ function killActor(target: Mobj, attacker?: Mobj): void {
   target.momx = 0;
   target.momy = 0;
   target.momz = 0;
-  // For now just log
-  console.log(`${target.type} died!`);
 
   // Player death
   if (target.player) {
     target.player.message = 'You died!';
     target.player.damageCount = 100;
-    console.log('Player died! Game over (respawn not implemented yet)');
   }
 }
 
