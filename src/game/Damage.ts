@@ -125,6 +125,8 @@ function killActor(target: Mobj, attacker?: Mobj): void {
 
   // Remove shootable flag
   target.flags &= ~MobjFlags.SHOOTABLE;
+  // Corpses don't block movement (vanilla: A_Fall / P_KillMobj for player)
+  target.flags &= ~MobjFlags.SOLID;
 
   target.flags |= MobjFlags.CORPSE;
   target.frame = getDeathFrame(target.type);
