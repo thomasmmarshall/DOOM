@@ -5,13 +5,18 @@
 
 import type { Mobj } from '../game/mobj';
 import { MobjFlags } from '../game/mobj';
-import { FixedToFloat, FloatToFixed, pRandom } from '../core';
+import { FixedToFloat, pRandom } from '../core';
 import { pointToAngleBam } from '../core/coordinates';
 import type { MapData } from '../level/types';
 import { checkLineOfSight } from '../physics/LineOfSight';
 import { applyCollision, applyGravity, applyZMomentum } from '../physics';
 import { damageActor } from '../game/Damage';
-import { getMonsterChaseSpeed, getMonsterReactionTime } from '../game/mobjinfoMotion';
+import {
+  CHASE_XSPEED,
+  CHASE_YSPEED,
+  getMonsterChaseSpeed,
+  getMonsterReactionTime,
+} from '../game/mobjinfoMotion';
 import { performHitscan } from '../weapons/WeaponSystem';
 import { spawnImpFireball } from '../weapons/projectiles';
 
@@ -83,6 +88,26 @@ function updateMonsterFrame(enemy: Mobj, ai: EnemyAI): void {
   enemy.frame = ai.animationTicks < 8 ? 'A' : 'B';
 }
 
+/**
+ * Nearest cardinal/diagonal chase dir (0–7) matching linuxdoom P_NewChaseDir / P_Move octants.
+ * Using the real xspeed/yspeed vectors avoids “homing missiles” that outrun vanilla A_Chase.
+ */
+function chaseMovedirToward(nx: number, ny: number): number {
+  let best = -Infinity;
+  let dir = 0;
+  for (let k = 0; k < 8; k++) {
+    const vx = CHASE_XSPEED[k]!;
+    const vy = CHASE_YSPEED[k]!;
+    const len = Math.hypot(vx, vy);
+    const dot = (nx * vx + ny * vy) / len;
+    if (dot > best) {
+      best = dot;
+      dir = k;
+    }
+  }
+  return dir;
+}
+
 function moveTowardPlayer(enemy: Mobj, player: Mobj, mapData: MapData): void {
   const dx = FixedToFloat(player.x - enemy.x);
   const dy = FixedToFloat(player.y - enemy.y);
@@ -92,8 +117,9 @@ function moveTowardPlayer(enemy: Mobj, player: Mobj, mapData: MapData): void {
   }
 
   const speed = getMonsterChaseSpeed(enemy.type);
-  enemy.momx = FloatToFixed((dx / dist) * speed);
-  enemy.momy = FloatToFixed((dy / dist) * speed);
+  const movedir = chaseMovedirToward(dx / dist, dy / dist);
+  enemy.momx = speed * CHASE_XSPEED[movedir]!;
+  enemy.momy = speed * CHASE_YSPEED[movedir]!;
   applyCollision(enemy, mapData);
   applyGravity(enemy);
   applyZMomentum(enemy);

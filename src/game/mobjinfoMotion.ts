@@ -2,6 +2,30 @@
  * mobjinfo.speed / reactiontime from linuxdoom-1.10/info.c (per-thing chase tuning).
  */
 
+import { FRACUNIT } from '../core/fixed';
+
+/** linuxdoom-1.10/p_enemy.c P_Move — speed is multiplied by these per movedir. */
+export const CHASE_XSPEED: readonly number[] = [
+  FRACUNIT,
+  47000,
+  0,
+  -47000,
+  -FRACUNIT,
+  -47000,
+  0,
+  47000,
+];
+export const CHASE_YSPEED: readonly number[] = [
+  0,
+  47000,
+  FRACUNIT,
+  47000,
+  0,
+  -47000,
+  -FRACUNIT,
+  -47000,
+];
+
 /** Editor thing type → mobjinfo.speed (same integer as vanilla). */
 export const MONSTER_CHASE_SPEED: Record<number, number> = {
   3004: 8, // MT_POSSESSED
