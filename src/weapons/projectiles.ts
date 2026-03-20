@@ -46,29 +46,40 @@ export function radiusAttack(
   }
 }
 
-function raySegmentHitsCircle(
-  x0: number,
-  y0: number,
-  x1: number,
-  y1: number,
+/**
+ * Ray O + t*d, |d| = 1, t in [0, maxT]: distance to first intersection with circle (cx,cy), radius r.
+ * Using projection of target center onto the ray (old code) is wrong for glancing hits — t is too
+ * large and `t > step` skips damage while the segment still crosses the actor cylinder.
+ */
+function firstCircleHitDistanceAlongRay(
+  ox: number,
+  oy: number,
+  dirX: number,
+  dirY: number,
+  maxT: number,
   cx: number,
   cy: number,
   r: number
-): boolean {
-  const dx = x1 - x0;
-  const dy = y1 - y0;
-  const fx = x0 - cx;
-  const fy = y0 - cy;
-  const a = dx * dx + dy * dy;
-  const b = 2 * (dx * fx + dy * fy);
-  const c = fx * fx + fy * fy - r * r;
-  const disc = b * b - 4 * a * c;
-  if (disc < 0 || a < 1e-8) return false;
+): number | null {
+  const wx = ox - cx;
+  const wy = oy - cy;
+  const B = wx * dirX + wy * dirY;
+  const C = wx * wx + wy * wy - r * r;
+  const disc = B * B - C;
+  if (disc < 0) return null;
   const s = Math.sqrt(disc);
-  const t0 = (-b - s) / (2 * a);
-  const t1 = (-b + s) / (2 * a);
-  const inSeg = (t: number) => t >= 0 && t <= 1;
-  return inSeg(t0) || inSeg(t1);
+  let best: number | null = null;
+  for (const t of [-B - s, -B + s]) {
+    if (t >= -1e-6 && t <= maxT + 1e-6) {
+      const tt = Math.max(0, t);
+      if (best === null || tt < best) best = tt;
+    }
+  }
+  return best;
+}
+
+function verticalRangesOverlap(a0: number, a1: number, b0: number, b1: number): boolean {
+  return a1 >= b0 && a0 <= b1;
 }
 
 const IMP_FIREBALL_SPEED = 10;
@@ -139,6 +150,7 @@ export function spawnImpFireball(
     let hitDist = step + 0.01;
     let hitThing: Mobj | undefined;
 
+    const ph = FixedToFloat(m.height);
     const all = getAllMobjs();
     for (const t of all) {
       if (t === m || t === owner || t.removed) continue;
@@ -148,15 +160,15 @@ export function spawnImpFireball(
       const txx = FixedToFloat(t.x);
       const tyy = FixedToFloat(t.y);
       const tr = FixedToFloat(t.radius);
-      const tz = FixedToFloat(t.z);
       const th = FixedToFloat(t.height);
+      const tz = FixedToFloat(t.z);
 
-      if (!raySegmentHitsCircle(ox, oy, nx, ny, txx, tyy, tr)) continue;
-      if (oz < tz || oz > tz + th) continue;
+      const tHit = firstCircleHitDistanceAlongRay(ox, oy, dirX, dirY, step + 0.01, txx, tyy, tr);
+      if (tHit === null) continue;
+      if (!verticalRangesOverlap(oz, oz + ph, tz, tz + th)) continue;
 
-      const tAlong = (txx - ox) * dirX + (tyy - oy) * dirY;
-      if (tAlong >= 0 && tAlong < hitDist) {
-        hitDist = tAlong;
+      if (tHit < hitDist) {
+        hitDist = tHit;
         hitThing = t;
       }
     }
@@ -245,6 +257,7 @@ export function spawnPlayerProjectile(
     let hitDist = step + 0.01;
     let hitThing: Mobj | undefined;
 
+    const ph = FixedToFloat(m.height);
     const all = getAllMobjs();
     for (const t of all) {
       if (t === m || t === owner || t.removed) continue;
@@ -254,15 +267,15 @@ export function spawnPlayerProjectile(
       const tx = FixedToFloat(t.x);
       const ty = FixedToFloat(t.y);
       const tr = FixedToFloat(t.radius);
-      const tz = FixedToFloat(t.z);
       const th = FixedToFloat(t.height);
+      const tz = FixedToFloat(t.z);
 
-      if (!raySegmentHitsCircle(ox, oy, nx, ny, tx, ty, tr)) continue;
-      if (oz < tz || oz > tz + th) continue;
+      const tHit = firstCircleHitDistanceAlongRay(ox, oy, dirX, dirY, step + 0.01, tx, ty, tr);
+      if (tHit === null) continue;
+      if (!verticalRangesOverlap(oz, oz + ph, tz, tz + th)) continue;
 
-      const tAlong = (tx - ox) * dirX + (ty - oy) * dirY;
-      if (tAlong >= 0 && tAlong < hitDist) {
-        hitDist = tAlong;
+      if (tHit < hitDist) {
+        hitDist = tHit;
         hitThing = t;
       }
     }
