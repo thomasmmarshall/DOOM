@@ -566,13 +566,14 @@ export class LevelRenderer {
       return;
     }
 
+    // Floor verts (low doom Z) → lower v; ceiling → higher v (matches DOOM pegging / patch orientation)
     const uvs = [
-      u1, v2,
-      u2, v2,
-      u2, v1,
-      u1, v2,
-      u2, v1,
       u1, v1,
+      u2, v1,
+      u2, v2,
+      u1, v1,
+      u2, v2,
+      u1, v2,
     ];
 
     for (let i = 0; i < uvs.length; i += 2) {

@@ -257,14 +257,14 @@ export class WallBuilder {
     const height = topZ - bottomZ;
 
     const uvs = new Float32Array([
-      // Triangle 1
-      0, 1,
-      1, 1,
-      1, 0,
-      // Triangle 2
-      0, 1,
-      1, 0,
+      // Triangle 1 (floor → low v, ceiling → high v; applyWallUVs overwrites)
       0, 0,
+      1, 0,
+      1, 1,
+      // Triangle 2
+      0, 0,
+      1, 1,
+      0, 1,
     ]);
 
     // Normals (pointing inward toward player)
