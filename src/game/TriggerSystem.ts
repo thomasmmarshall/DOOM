@@ -7,7 +7,8 @@
 import type { MapData, MapLineDef } from '../level/types';
 import type { DoorManager } from '../sectors/DoorSystem';
 import { DoorType } from '../sectors/DoorSystem';
-import type { PlatformManager, PlatformType } from '../sectors/PlatformSystem';
+import type { PlatformManager } from '../sectors/PlatformSystem';
+import { PlatformType } from '../sectors/PlatformSystem';
 import { findBackSectorForLine, findSectorsByTag } from '../sectors';
 import type { Mobj } from './mobj';
 import { FixedToFloat } from '../core/fixed';
@@ -39,6 +40,15 @@ export enum SpecialCategory {
  * Common DOOM linedef special types
  * Source: https://doomwiki.org/wiki/Linedef_type
  */
+/** Linedefs activated by walking over (P_CrossSpecialLine); subset we handle. */
+const WALK_LINE_SPECIALS = new Set<number>([
+  2, 3, 4, 10, 36, 48, 52, 88,
+  19, 38, 82, 83,
+  105, 106, 107, 108, 109, 110,
+  120, 121,
+  124,
+]);
+
 export const LineSpecials = {
   // Doors
   DR_DOOR: 1,              // Door Open Wait Close (DR)
@@ -189,6 +199,12 @@ export class TriggerSystem {
     if (special === 118) {
       return this.activateManualDoor(lineIndex, DoorType.BLAZING_OPEN_STAY);
     }
+    if (special === 114) {
+      return this.activateDoorByTag(line.tag, DoorType.BLAZING);
+    }
+    if (special === 115) {
+      return this.activateDoorByTag(line.tag, DoorType.BLAZING_OPEN_STAY);
+    }
 
     // Door specials
     if (special === LineSpecials.DR_DOOR ||
@@ -206,25 +222,49 @@ export class TriggerSystem {
 
     if (special === LineSpecials.W1_DOOR_CLOSE ||
         special === LineSpecials.SR_DOOR_CLOSE) {
-      return this.activateDoorByTag(line.tag, DoorType.CLOSE);
+      return this.activateDoorCloseByTag(line.tag, false);
     }
 
     // Platform specials
     if (special === LineSpecials.SR_PLATFORM_DOWN ||
         special === LineSpecials.WR_PLATFORM_DOWN ||
         special === LineSpecials.W1_PLATFORM_DOWN) {
-      return this.activatePlatformByTag(line.tag, 'LOWER_AND_WAIT');
+      return this.activatePlatformByTag(line.tag, PlatformType.LOWER_AND_WAIT);
     }
 
     if (special === LineSpecials.W1_FLOOR_TURBO_LOWER) {
-      return this.activatePlatformByTag(line.tag, 'TURBO_LOWER');
+      return this.activatePlatformByTag(line.tag, PlatformType.TURBO_LOWER);
+    }
+
+    // Vanilla floor movers (walk W1/WR and switch 70)
+    if (special === 38 || special === 82) {
+      return this.activatePlatformByTag(line.tag, PlatformType.LOWER_FLOOR_TO_LOWEST);
+    }
+    if (special === 19 || special === 83) {
+      return this.activatePlatformByTag(line.tag, PlatformType.LOWER_FLOOR_TO_HIGHEST_NEIGHBOR);
+    }
+    if (special === 121 || special === 120) {
+      return this.activatePlatformByTag(line.tag, PlatformType.BLAZE_LOWER_AND_WAIT);
+    }
+    if (special === 70) {
+      return this.activatePlatformByTag(line.tag, PlatformType.TURBO_LOWER);
+    }
+
+    if (special === 105 || special === 108) {
+      return this.activateDoorByTag(line.tag, DoorType.BLAZING);
+    }
+    if (special === 106 || special === 109) {
+      return this.activateDoorByTag(line.tag, DoorType.BLAZING_OPEN_STAY);
+    }
+    if (special === 107 || special === 110) {
+      return this.activateDoorCloseByTag(line.tag, /* blazing */ true);
     }
 
     if (special === LineSpecials.SR_PLATFORM_PERPETUAL) {
-      return this.activatePlatformByTag(line.tag, 'PERPETUAL_RAISE');
+      return this.activatePlatformByTag(line.tag, PlatformType.PERPETUAL_RAISE);
     }
 
-    if (special === LineSpecials.S1_EXIT || special === LineSpecials.W1_EXIT) {
+    if (special === LineSpecials.S1_EXIT || special === LineSpecials.W1_EXIT || special === 124) {
       this.onLevelExit?.();
       return true;
     }
@@ -243,6 +283,18 @@ export class TriggerSystem {
     for (const sectorIndex of findSectorsByTag(this.mapData, tag)) {
       const success = this.doorManager.activateDoor(sectorIndex, doorType);
       if (success) activated = true;
+    }
+    return activated;
+  }
+
+  private activateDoorCloseByTag(tag: number, blazing: boolean): boolean {
+    if (tag === 0) return false;
+
+    let activated = false;
+    for (const sectorIndex of findSectorsByTag(this.mapData, tag)) {
+      if (this.doorManager.activateCloseDoor(sectorIndex, blazing)) {
+        activated = true;
+      }
     }
     return activated;
   }
@@ -310,18 +362,14 @@ export class TriggerSystem {
     // W1/WR = Walk Once/Repeatable
     // S1/SR = Switch Once/Repeatable
 
-    // For simplicity, check first digit of special
-    if (special === 1 || special === 11) return activation === ActivationType.USE; // DR / Exit switch
+    if (special === 1 || special === 11) return activation === ActivationType.USE;
 
-    // W1/WR types (walk triggers)
-    const walkSpecials = [2, 3, 4, 10, 36, 48, 52, 88];
-    if (walkSpecials.includes(special)) {
+    if (WALK_LINE_SPECIALS.has(special)) {
       return activation === ActivationType.WALK;
     }
 
-    // USE: switches + manual / locked doors (see p_switch.c P_UseSpecialLine)
     const useSpecials = [
-      26, 27, 28, 31, 32, 33, 34, 61, 62, 63, 42, 87, 99, 117, 118, 133, 134, 135, 136, 137,
+      26, 27, 28, 31, 32, 33, 34, 61, 62, 63, 42, 87, 70, 99, 114, 115, 117, 118, 133, 134, 135, 136, 137,
     ];
     if (useSpecials.includes(special)) {
       return activation === ActivationType.USE;
@@ -334,8 +382,12 @@ export class TriggerSystem {
    * Check if special can only be activated once
    */
   private isOnceOnly(special: number): boolean {
-    // W1/S1 types; locked SR blazing open clears line in vanilla (133,135,137)
-    const onceOnlySpecials = [2, 3, 4, 10, 11, 36, 52, 133, 135, 137];
+    if ([82, 83, 88, 105, 106, 107, 120].includes(special)) {
+      return false;
+    }
+    const onceOnlySpecials = [
+      2, 3, 4, 10, 11, 19, 36, 38, 52, 62, 63, 70, 108, 109, 110, 121, 124, 133, 135, 137, 114, 115,
+    ];
     return onceOnlySpecials.includes(special);
   }
 

@@ -34,6 +34,18 @@ export function findLowestNeighborFloor(mapData: MapData, sectorIndex: number): 
   return height;
 }
 
+/** `P_FindHighestFloorSurrounding` — used by vanilla `lowerFloor` (linedef 19, 83). */
+export function findHighestNeighborFloor(mapData: MapData, sectorIndex: number): number {
+  const sector = mapData.sectors[sectorIndex];
+  let height = sector.floorheight;
+
+  for (const neighborIndex of getAdjacentSectorIndices(mapData, sectorIndex)) {
+    height = Math.max(height, mapData.sectors[neighborIndex].floorheight);
+  }
+
+  return height;
+}
+
 export function findNextHighestNeighborFloor(mapData: MapData, sectorIndex: number): number {
   const sector = mapData.sectors[sectorIndex];
   const higherHeights = getAdjacentSectorIndices(mapData, sectorIndex)

@@ -254,7 +254,7 @@ export function selectSkyTexture(mapName: string): string {
     return 'SKY3';
   }
 
-  const doom1Match = upperName.match(/^E(\d)M\d$/);
+  const doom1Match = upperName.match(/^E(\d+)M(\d+)$/i);
   if (doom1Match) {
     const episode = Number.parseInt(doom1Match[1], 10);
     return `SKY${Math.min(4, Math.max(1, episode))}`;

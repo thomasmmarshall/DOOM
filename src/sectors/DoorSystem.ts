@@ -106,6 +106,39 @@ export class DoorManager {
   }
 
   /**
+   * Start closing a door sector (walk/switch "close door" specials). Vanilla lowers
+   * ceiling to `floorheight` (p_doors.c T_VerticalDoor case -1).
+   */
+  activateCloseDoor(sectorIndex: number, blazing: boolean): boolean {
+    if (this.doors.has(sectorIndex)) {
+      return false;
+    }
+
+    const sector = this.mapData.sectors[sectorIndex];
+    if (!sector) return false;
+
+    const dest = IntToFixed(sector.floorheight);
+    if (FloatToFixed(sector.ceilingheight) <= dest) {
+      return true;
+    }
+
+    const topHeight = IntToFixed(findLowestNeighborCeiling(this.mapData, sectorIndex) - 4);
+    const speed = blazing ? IntToFixed(8) : IntToFixed(2);
+    const door: DoorThinker = {
+      sectorIndex,
+      type: DoorType.CLOSE,
+      state: DoorState.CLOSING,
+      speed,
+      topHeight,
+      bottomHeight: dest,
+      waitTimer: 0,
+    };
+
+    this.doors.set(sectorIndex, door);
+    return true;
+  }
+
+  /**
    * Update all active doors (called each tick)
    */
   updateDoors(): void {

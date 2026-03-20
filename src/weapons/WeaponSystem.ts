@@ -85,7 +85,8 @@ export const WEAPON_INFO: Map<WeaponType, WeaponInfo> = new Map([
     ammoType: 'bullets',
     ammoPerShot: 1,
     damage: 15,
-    fireDelay: 4,
+    /* ~PISTOL1–PISTOL4 chain in info.c (refire held). */
+    fireDelay: 18,
     sprite: 'PISG',
   }],
   [WeaponType.SHOTGUN, {

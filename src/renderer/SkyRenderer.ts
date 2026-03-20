@@ -49,6 +49,8 @@ export class SkyRenderer {
       this.mesh = new THREE.Mesh(geometry, material);
       this.mesh.renderOrder = -1000;
       this.mesh.frustumCulled = false;
+      // Align cylinder seam / DOOM east–north with camera convention (r_sky angle mapping).
+      this.mesh.rotation.y = Math.PI / 2;
 
       console.log(`Sky cylinder created successfully`);
 

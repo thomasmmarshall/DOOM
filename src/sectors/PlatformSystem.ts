@@ -7,7 +7,11 @@
 import type { MapData } from '../level/types';
 import type { Fixed } from '../core';
 import { IntToFixed, FixedToFloat, FloatToFixed } from '../core/fixed';
-import { findLowestNeighborFloor, findNextHighestNeighborFloor } from './sectorHeights';
+import {
+  findHighestNeighborFloor,
+  findLowestNeighborFloor,
+  findNextHighestNeighborFloor,
+} from './sectorHeights';
 
 /**
  * Platform state
@@ -28,6 +32,12 @@ export enum PlatformType {
   RAISE_TO_NEXT = 'RAISE_TO_NEXT',     // Raises to next floor height
   LOWER_AND_WAIT = 'LOWER_AND_WAIT',   // Lowers, waits, raises
   TURBO_LOWER = 'TURBO_LOWER',         // Lowers to neighboring floor and stays
+  /** Vanilla `lowerFloorToLowest` / FLOORSPEED (e.g. W1 38, WR 82). */
+  LOWER_FLOOR_TO_LOWEST = 'LOWER_FLOOR_TO_LOWEST',
+  /** Vanilla `lowerFloor` — down to highest neighbor floor (W1 19, WR 83). */
+  LOWER_FLOOR_TO_HIGHEST_NEIGHBOR = 'LOWER_FLOOR_TO_HIGHEST_NEIGHBOR',
+  /** `blazeDWUS` — fast lower, wait, raise (W1 121). */
+  BLAZE_LOWER_AND_WAIT = 'BLAZE_LOWER_AND_WAIT',
 }
 
 /**
@@ -92,6 +102,24 @@ export class PlatformManager {
         state = PlatformState.DOWN;
         break;
       case PlatformType.TURBO_LOWER:
+        lowHeight = IntToFixed(findLowestNeighborFloor(this.mapData, sectorIndex));
+        highHeight = currentHeight;
+        platformSpeed = 8;
+        state = PlatformState.DOWN;
+        break;
+      case PlatformType.LOWER_FLOOR_TO_LOWEST:
+        lowHeight = IntToFixed(findLowestNeighborFloor(this.mapData, sectorIndex));
+        highHeight = currentHeight;
+        platformSpeed = 1;
+        state = PlatformState.DOWN;
+        break;
+      case PlatformType.LOWER_FLOOR_TO_HIGHEST_NEIGHBOR:
+        lowHeight = IntToFixed(findHighestNeighborFloor(this.mapData, sectorIndex));
+        highHeight = currentHeight;
+        platformSpeed = 1;
+        state = PlatformState.DOWN;
+        break;
+      case PlatformType.BLAZE_LOWER_AND_WAIT:
         lowHeight = IntToFixed(findLowestNeighborFloor(this.mapData, sectorIndex));
         highHeight = currentHeight;
         platformSpeed = 8;
@@ -185,7 +213,10 @@ export class PlatformManager {
           if (platform.type === PlatformType.PERPETUAL_RAISE) {
             platform.state = PlatformState.WAITING;
             platform.waitTimer = platform.waitTime;
-          } else if (platform.type === PlatformType.LOWER_AND_WAIT) {
+          } else if (
+            platform.type === PlatformType.LOWER_AND_WAIT ||
+            platform.type === PlatformType.BLAZE_LOWER_AND_WAIT
+          ) {
             platform.state = PlatformState.WAITING;
             platform.waitTimer = platform.waitTime;
           } else {
