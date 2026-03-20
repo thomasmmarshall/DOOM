@@ -6,6 +6,7 @@
 
 import type { WADReader } from '../wad';
 import { PatchDecoder } from '../graphics';
+import { loadTitlePicFromCustomOrWad } from './titleBranding';
 
 const LINEHEIGHT = 16;
 const SKULLXOFF = -32;
@@ -36,6 +37,8 @@ export class MainMenu {
   /** IWAD has MAPxx but no ExMy (DOOM II / Final Doom) — episode menu would invent bogus E3M1 etc. */
   private commercialMapOnly: boolean = false;
   private firstInteractionFired: boolean = false;
+  /** Custom title PNG already includes lettering; skip WAD M_DOOM overlay */
+  private customTitleBranding: boolean = false;
 
   constructor(
     wad: WADReader,
@@ -66,13 +69,9 @@ export class MainMenu {
   }
 
   async init(): Promise<void> {
-    // TITLEPIC background
-    let data = this.wad.readLump('TITLEPIC');
-    if (!data) data = this.wad.readLump('TITLE');
-    if (data) {
-      const decoded = PatchDecoder.decodePatch(data, this.palette);
-      this.titlePatch = this.createPatchCanvas(decoded);
-    }
+    const { canvas, isCustom } = await loadTitlePicFromCustomOrWad(this.wad, this.palette);
+    this.titlePatch = canvas;
+    this.customTitleBranding = isCustom;
 
     // Load menu patches
     const mainItems = ['M_DOOM', 'M_NGAME', 'M_OPTION', 'M_LOADG', 'M_SAVEG', 'M_RDTHIS', 'M_QUITG'];
@@ -340,8 +339,10 @@ export class MainMenu {
     const skullPatch = this.patches.get(skullName);
 
     if (this.screen === 'main') {
-      const doomPatch = this.patches.get('M_DOOM');
-      if (doomPatch) this.ctx.drawImage(doomPatch, 94, 2);
+      if (!this.customTitleBranding) {
+        const doomPatch = this.patches.get('M_DOOM');
+        if (doomPatch) this.ctx.drawImage(doomPatch, 94, 2);
+      }
 
       const items = ['M_NGAME', 'M_OPTION', 'M_LOADG', 'M_SAVEG', 'M_RDTHIS', 'M_QUITG'];
       let y = 64;

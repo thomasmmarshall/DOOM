@@ -6,7 +6,7 @@
  */
 
 import type { WADReader } from '../wad';
-import { PatchDecoder } from '../graphics';
+import { loadTitlePicFromCustomOrWad } from './titleBranding';
 
 const PAGETIC = 170; // Original DOOM: 170 tics at 35 Hz
 const TICRATE = 35;
@@ -67,23 +67,11 @@ export class TitleScreen {
   }
 
   async init(): Promise<void> {
-    let data = this.wad.readLump('TITLEPIC');
-    if (!data) {
-      data = this.wad.readLump('TITLE');
+    const { canvas } = await loadTitlePicFromCustomOrWad(this.wad, this.palette);
+    this.titlePatch = canvas;
+    if (!this.titlePatch) {
+      console.warn('TITLEPIC or TITLE not found, and custom title asset missing');
     }
-    if (!data) {
-      console.warn('TITLEPIC or TITLE not found');
-      return;
-    }
-
-    const decoded = PatchDecoder.decodePatch(data, this.palette);
-    this.titlePatch = document.createElement('canvas');
-    this.titlePatch.width = decoded.width;
-    this.titlePatch.height = decoded.height;
-    const ctx = this.titlePatch.getContext('2d')!;
-    const imageData = ctx.createImageData(decoded.width, decoded.height);
-    imageData.data.set(decoded.pixels);
-    ctx.putImageData(imageData, 0, 0);
   }
 
   show(): void {
