@@ -14,6 +14,7 @@ import { damageActor } from '../game/Damage';
 import {
   CHASE_XSPEED,
   CHASE_YSPEED,
+  getChaseFrameTics,
   getMonsterChaseSpeed,
   getMonsterReactionTime,
 } from '../game/mobjinfoMotion';
@@ -35,6 +36,8 @@ export interface EnemyAI {
   painTicks: number;
   animationTicks: number;
   reactiontime: number;
+  /** Countdown to next `P_Move` step; vanilla runs A_Chase only on RUN state transitions. */
+  chaseMoveCooldown: number;
 }
 
 /** Optional: imp fireball + monster hitscans need world mobjs and spawner. */
@@ -54,6 +57,7 @@ function getEnemyAI(enemy: Mobj): EnemyAI {
       painTicks: 0,
       animationTicks: 0,
       reactiontime: 0,
+      chaseMoveCooldown: 0,
     } satisfies EnemyAI;
   }
 
@@ -204,6 +208,7 @@ export function updateMonster(
   if (enemy.flags & MobjFlags.JUSTHIT) {
     ai.state = AIState.PAIN;
     ai.painTicks = 4;
+    ai.chaseMoveCooldown = 0;
     enemy.flags &= ~MobjFlags.JUSTHIT;
   }
 
@@ -218,6 +223,9 @@ export function updateMonster(
   if (ai.painTicks > 0) {
     ai.painTicks--;
     ai.state = AIState.PAIN;
+    if (ai.painTicks === 0) {
+      ai.chaseMoveCooldown = 0;
+    }
     updateMonsterFrame(enemy, ai);
     return;
   }
@@ -231,10 +239,14 @@ export function updateMonster(
   const react = getMonsterReactionTime(enemy.type);
 
   if (hasSight) {
+    const firstSight = !ai.target;
     if (!ai.target) {
       ai.reactiontime = react;
     }
     ai.target = player;
+    if (firstSight) {
+      ai.chaseMoveCooldown = 0;
+    }
   } else if (noiseOrigin && !ai.target && !(enemy.flags & MobjFlags.AMBUSH)) {
     const distToNoise = Math.hypot(
       FixedToFloat(enemy.x) - noiseOrigin.x,
@@ -243,6 +255,7 @@ export function updateMonster(
     if (distToNoise <= SOUND_RANGE) {
       ai.target = player;
       ai.reactiontime = react;
+      ai.chaseMoveCooldown = 0;
     }
   }
 
@@ -287,11 +300,22 @@ export function updateMonster(
   if (shouldAttack) {
     ai.state = AIState.ATTACK;
     ai.attackCooldown = enemy.type === 9 ? 56 : 48;
+    ai.chaseMoveCooldown = 0;
     onAttack?.(enemy, melee);
     resolveAttack(enemy, player, mapData, melee, ctx);
   } else {
     ai.state = AIState.CHASE;
-    moveTowardPlayer(enemy, player, mapData);
+    const stride = getChaseFrameTics(enemy.type);
+    if (ai.chaseMoveCooldown > 0) {
+      ai.chaseMoveCooldown--;
+      enemy.momx = 0;
+      enemy.momy = 0;
+      applyGravity(enemy);
+      applyZMomentum(enemy);
+    } else {
+      moveTowardPlayer(enemy, player, mapData);
+      ai.chaseMoveCooldown = stride - 1;
+    }
   }
 
   updateMonsterFrame(enemy, ai);

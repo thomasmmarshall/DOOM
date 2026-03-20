@@ -49,6 +49,33 @@ export function getMonsterChaseSpeed(thingType: number): number {
   return MONSTER_CHASE_SPEED[thingType] ?? 8;
 }
 
+/**
+ * Gametics between chase steps (`A_Chase` → `P_Move`). In linuxdoom, actions run on RUN
+ * state entry, each RUN frame has its own `tics` (see info.c S_*_RUN1…8); this is the
+ * common value per species so we do not P_Move at full 35 Hz.
+ */
+export const CHASE_FRAME_TICS: Record<number, number> = {
+  3004: 4, // MT_POSSESSED S_POSS_RUN*
+  9: 3, // MT_SHOTGUY S_SPOS_RUN*
+  3001: 3, // MT_TROOP S_TROO_RUN*
+  3002: 2, // MT_SERGEANT S_SARG_RUN*
+  3003: 3, // MT_BRUISER S_BOSS_RUN*
+  3005: 3, // MT_HEAD S_HEAD_RUN1 (loop)
+  3006: 6, // MT_SKULL S_SKULL_RUN*
+  66: 2, // MT_UNDEAD (revenant) S_SKEL_RUN*
+  67: 4, // MT_FATSO S_FATT_RUN*
+  68: 3, // MT_BABY S_BSPI_RUN*
+  69: 3, // MT_KNIGHT S_BOS2_RUN*
+  64: 2, // MT_VILE S_VILE_RUN*
+  71: 3, // MT_PAIN S_PAIN_RUN*
+  16: 3, // MT_CYBORG S_CYBER_RUN* (first A_Chase-style step cadence)
+  7: 3, // MT_SPID S_SPID_RUN* (mostly 3; Metal frames omit chase)
+};
+
+export function getChaseFrameTics(thingType: number): number {
+  return CHASE_FRAME_TICS[thingType] ?? 4;
+}
+
 /** mobjinfo.reactiontime; almost all monsters use 8 in vanilla. */
 export const MONSTER_REACTIONTIME: Record<number, number> = {};
 
