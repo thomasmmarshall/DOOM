@@ -91,11 +91,13 @@ export function damageActor(
     return { damageDealt: actualDamage, killed: true, overkill };
   }
 
-  // Not killed - enter pain state
-  // TODO: Implement pain state when we have full state system
-  // For now, just set a flag
+  // Pain state — vanilla P_DamageMobj uses painchance from mobjinfo.
+  // P_Random() < painchance determines if the actor flinches.
   if (target.health > 0) {
-    target.flags |= MobjFlags.JUSTHIT;
+    const painChance = target.painChance ?? 128;
+    if (pRandom() < painChance) {
+      target.flags |= MobjFlags.JUSTHIT;
+    }
     if (target.player) {
       target.player.damageCount = Math.min(100, target.player.damageCount + actualDamage);
     }
