@@ -156,24 +156,25 @@ function pickupByType(item: Mobj, player: Mobj): PickupResult {
     case 39: // Yellow skull key
       return giveKey(player, 'yellowSkull', 'Picked up a yellow skull key.');
 
-    // POWERUPS
-    case 2022: // Invulnerability
-      return givePowerup(player, 'invulnerability', 30, 'Invulnerability!');
+    // POWERUPS (durations in tics; TICRATE=35)
+    case 2022: // Invulnerability — INVULNTICS = 30*35
+      return givePowerup(player, 'invulnerability', 1050, 'Invulnerability!');
 
-    case 2023: // Berserk
-      return givePowerup(player, 'berserk', -1, 'Berserk!'); // Permanent until death
+    case 2023: // Berserk — permanent (lasts until level end); also heals to 100
+      if (player.health < 100) player.health = 100;
+      return givePowerup(player, 'berserk', -1, 'Berserk!');
 
-    case 2024: // Invisibility
-      return givePowerup(player, 'invisibility', 60, 'Partial invisibility!');
+    case 2024: // Invisibility — INVISTICS = 60*35
+      return givePowerup(player, 'invisibility', 2100, 'Partial invisibility!');
 
-    case 2025: // Radiation suit
-      return givePowerup(player, 'radsuit', 60, 'Radiation shielding suit!');
+    case 2025: // Radiation suit — IRONTICS = 60*35
+      return givePowerup(player, 'radsuit', 2100, 'Radiation shielding suit!');
 
-    case 2026: // Computer map
+    case 2026: // Computer map — permanent
       return givePowerup(player, 'allmap', -1, 'Computer area map!');
 
-    case 2045: // Light amplification
-      return givePowerup(player, 'infrared', 120, 'Light amplification visor!');
+    case 2045: // Light amplification — INFRATICS = 120*35
+      return givePowerup(player, 'infrared', 4200, 'Light amplification visor!');
 
     default:
       return { success: false };
