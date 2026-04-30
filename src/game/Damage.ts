@@ -91,8 +91,15 @@ export function damageActor(
     return { damageDealt: actualDamage, killed: true, overkill };
   }
 
+  // Infighting: if a non-player damages a monster, the monster retargets.
+  // Vanilla: target->target = source; target->threshold = BASETHRESHOLD (100 tics).
+  if (!target.player && attacker && attacker !== target &&
+      !(target.flags & MobjFlags.SKULLFLY)) {
+    target.infightTarget = attacker;
+    target.threshold = 100; // BASETHRESHOLD
+  }
+
   // Pain state — vanilla P_DamageMobj uses painchance from mobjinfo.
-  // P_Random() < painchance determines if the actor flinches.
   if (target.health > 0) {
     const painChance = target.painChance ?? 128;
     if (pRandom() < painChance) {

@@ -265,6 +265,18 @@ export function updateMonster(
     return;
   }
 
+  // Infighting: if damaged by another monster, retarget
+  if (enemy.infightTarget && enemy.infightTarget !== player &&
+      enemy.infightTarget.health > 0 && !enemy.infightTarget.removed) {
+    ai.target = enemy.infightTarget;
+    enemy.infightTarget = undefined;
+  }
+
+  // Threshold countdown (vanilla: can't switch targets while threshold > 0)
+  if (enemy.threshold && enemy.threshold > 0) {
+    enemy.threshold--;
+  }
+
   if (enemy.flags & MobjFlags.JUSTHIT) {
     ai.state = AIState.PAIN;
     ai.painTicks = 4;
