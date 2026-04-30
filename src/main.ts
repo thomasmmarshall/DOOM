@@ -11,7 +11,7 @@ import { loadWAD } from './demo';
 import { MapParser, findSectorAtPoint } from './level';
 import { PaletteLoader } from './graphics';
 import { LevelRenderer, WeaponRenderer } from './renderer';
-import { doomToThree, doomAngleToThreeRadians, initTables, GameTicker, TICRATE, IntToFixed, FixedToFloat, DegreesToAngle, FloatToFixed } from './core';
+import { doomToThree, doomAngleToThreeRadians, initTables, GameTicker, TICRATE, IntToFixed, FixedToFloat, DegreesToAngle, FloatToFixed, pRandom } from './core';
 import { InputManager, Button } from './input';
 import { createPlayerMobj, type Mobj, MobjFlags, ThinkerManager, TriggerSystem, ThingSpawner } from './game';
 import { movePlayer, applyFriction, applyGravity, applyZMomentum, calculateViewZ, applyCollision, clampMomentum, updateViewHeight } from './physics';
@@ -577,9 +577,21 @@ class DoomGame {
     if (typeof sectorIndex === 'number') {
       const sector = this.mapData.sectors[sectorIndex];
       if (this.playerMobj.z <= this.playerMobj.floorz) {
-        if (sector.special === 7 && (this.levelTime & 0x1f) === 0 && !this.playerMobj.player.powerups.radsuit) {
-          damageActor(this.playerMobj, 5);
-          this.soundManager?.play('playerPain', 0.35);
+        const hasRadsuit = !!this.playerMobj.player.powerups.radsuit;
+
+        // Vanilla p_spec.c damage sectors (checked every 32 tics):
+        // Type 5: -10 HP, Type 7: -5 HP, Type 4/11/16: -20 HP
+        if ((this.levelTime & 0x1f) === 0) {
+          let sectorDamage = 0;
+          switch (sector.special) {
+            case 5: sectorDamage = 10; break;
+            case 7: sectorDamage = 5; break;
+            case 4: case 11: case 16: sectorDamage = 20; break;
+          }
+          if (sectorDamage > 0 && !hasRadsuit) {
+            damageActor(this.playerMobj, sectorDamage);
+            this.soundManager?.play('playerPain', 0.35);
+          }
         }
 
         if (sector.special === 9 && !this.visitedSecretSectors.has(sectorIndex)) {
@@ -596,14 +608,27 @@ class DoomGame {
       let nextLight = base;
 
       switch (sector.special) {
-        case 1:
+        case 1: // Random flicker (like broken light)
           nextLight = (this.levelTime % 16) < 2 ? Math.max(32, base - 96) : base;
           break;
-        case 8:
+        case 2: // Strobe fast (T_StrobeFlash: bright 5, dark 15)
+        case 4: // Strobe fast + -20% damage
+          nextLight = (this.levelTime % 20) < 5 ? base : Math.max(32, base - 128);
+          break;
+        case 3: // Strobe slow (bright 5, dark 35)
+          nextLight = (this.levelTime % 40) < 5 ? base : Math.max(32, base - 128);
+          break;
+        case 8: // Oscillate (T_Glow)
           nextLight = (this.levelTime % 64) < 32 ? base : Math.max(32, base - 48);
           break;
-        case 12:
-          nextLight = (this.levelTime % 16) < 8 ? Math.max(32, base - 64) : base;
+        case 12: // Strobe slow sync
+          nextLight = (this.levelTime % 40) < 20 ? base : Math.max(32, base - 64);
+          break;
+        case 13: // Strobe fast sync
+          nextLight = (this.levelTime % 20) < 10 ? base : Math.max(32, base - 64);
+          break;
+        case 17: // Fire flicker (random between base and base-48)
+          nextLight = (pRandom() & 3) === 0 ? Math.max(32, base - 48) : base;
           break;
       }
 
