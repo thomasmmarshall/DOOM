@@ -54,15 +54,20 @@ export type SectorCeilingCallback = (sectorIndex: number, oldHeight: number, new
 /**
  * Active door registry
  */
+/** Check if lowering ceiling would crush a mobj in the sector. */
+export type CrushCheckFn = (sectorIndex: number, newCeilingHeight: number) => boolean;
+
 export class DoorManager {
   private doors: Map<number, DoorThinker>;
   private mapData: MapData;
   private onCeilingChange?: SectorCeilingCallback;
+  private crushCheck?: CrushCheckFn;
 
-  constructor(mapData: MapData, onCeilingChange?: SectorCeilingCallback) {
+  constructor(mapData: MapData, onCeilingChange?: SectorCeilingCallback, crushCheck?: CrushCheckFn) {
     this.doors = new Map();
     this.mapData = mapData;
     this.onCeilingChange = onCeilingChange;
+    this.crushCheck = crushCheck;
   }
 
   /**
@@ -201,15 +206,23 @@ export class DoorManager {
         const newCloseHeight = currentHeight - door.speed;
         const oldCloseHeight = sector.ceilingheight;
 
+        // Vanilla: if door would crush something, reverse (except CLOSE-type doors)
+        if (door.type !== DoorType.CLOSE && this.crushCheck) {
+          const proposedHeight = FixedToFloat(newCloseHeight);
+          if (this.crushCheck(door.sectorIndex, proposedHeight)) {
+            door.state = DoorState.OPENING;
+            break;
+          }
+        }
+
         if (newCloseHeight <= door.bottomHeight) {
-          // Fully closed
           const newHeight = FixedToFloat(door.bottomHeight);
           sector.ceilingheight = newHeight;
           if (this.onCeilingChange) {
             this.onCeilingChange(door.sectorIndex, oldCloseHeight, newHeight);
           }
           door.state = DoorState.CLOSED;
-          this.doors.delete(door.sectorIndex); // Remove - no longer active
+          this.doors.delete(door.sectorIndex);
         } else {
           const newHeight = FixedToFloat(newCloseHeight);
           sector.ceilingheight = newHeight;

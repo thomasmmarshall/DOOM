@@ -766,7 +766,21 @@ class DoomGame {
       // Initialize sector managers with renderer callbacks
       this.doorManager = new DoorManager(
         this.mapData,
-        (sectorIndex, oldHeight, newHeight) => this.levelRenderer?.updateSectorCeiling(sectorIndex, oldHeight, newHeight)
+        (sectorIndex, oldHeight, newHeight) => this.levelRenderer?.updateSectorCeiling(sectorIndex, oldHeight, newHeight),
+        (sectorIndex, newCeilingHeight) => {
+          // Check if any mobj in this sector would be crushed
+          const allMobjs = this.thinkerManager.getAllMobjs();
+          for (const mobj of allMobjs) {
+            if (mobj.removed || mobj.sectorIndex !== sectorIndex) continue;
+            const mobjTop = FixedToFloat(mobj.z) + FixedToFloat(mobj.height);
+            if (mobjTop > newCeilingHeight) return true;
+          }
+          if (this.playerMobj && this.playerMobj.sectorIndex === sectorIndex) {
+            const playerTop = FixedToFloat(this.playerMobj.z) + FixedToFloat(this.playerMobj.height);
+            if (playerTop > newCeilingHeight) return true;
+          }
+          return false;
+        }
       );
       this.platformManager = new PlatformManager(
         this.mapData,
