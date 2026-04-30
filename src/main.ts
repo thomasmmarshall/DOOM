@@ -14,7 +14,7 @@ import { LevelRenderer, WeaponRenderer } from './renderer';
 import { doomToThree, doomAngleToThreeRadians, initTables, GameTicker, TICRATE, IntToFixed, FixedToFloat, DegreesToAngle, FloatToFixed } from './core';
 import { InputManager, Button } from './input';
 import { createPlayerMobj, type Mobj, MobjFlags, ThinkerManager, TriggerSystem, ThingSpawner } from './game';
-import { movePlayer, applyFriction, applyGravity, applyZMomentum, calculateViewZ, applyCollision } from './physics';
+import { movePlayer, applyFriction, applyGravity, applyZMomentum, calculateViewZ, applyCollision, clampMomentum, updateViewHeight } from './physics';
 import type { MapData } from './level';
 import { DoorManager, PlatformManager } from './sectors';
 import { StatusBar, TitleScreen, BorderFrame, MainMenu, IntermissionScreen, type PlayerStats, type IntermissionStats } from './ui';
@@ -850,20 +850,24 @@ class DoomGame {
 
     this.previousButtons = cmd.buttons;
 
-    // Apply player movement
+    // Apply player movement (P_MovePlayer)
     movePlayer(this.playerMobj, cmd);
 
-    // Apply friction
-    applyFriction(this.playerMobj);
+    // Clamp momentum to MAXMOVE (vanilla P_XYMovement)
+    clampMomentum(this.playerMobj);
 
-    // Apply gravity
-    applyGravity(this.playerMobj);
-
-    // Apply XY momentum with collision detection (walls + SOLID mobjs e.g. barrels)
+    // Apply XY momentum with collision detection (sub-stepped like vanilla)
     applyCollision(this.playerMobj, this.mapData, this.thinkerManager.getAllMobjs());
 
-    // Apply Z momentum
+    // Apply friction after XY movement (vanilla order)
+    applyFriction(this.playerMobj, cmd);
+
+    // Apply gravity and Z momentum (P_ZMovement)
+    applyGravity(this.playerMobj);
     applyZMomentum(this.playerMobj);
+
+    // Update player view height (landing squat, rise from spawn)
+    updateViewHeight(this.playerMobj);
 
     // Check for item pickups
     const allMobjs = this.thinkerManager.getAllMobjs();
@@ -1161,7 +1165,7 @@ class DoomGame {
     if (!this.playerMobj) return;
 
     // Calculate view position with bobbing
-    const viewZ = calculateViewZ(this.playerMobj);
+    const viewZ = calculateViewZ(this.playerMobj, this.levelTime);
 
     // Convert to three.js coordinates
     const pos = doomToThree(

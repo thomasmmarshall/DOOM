@@ -60,16 +60,20 @@ export function damageActor(
     return { damageDealt: damage, killed: true, overkill: damage };
   }
 
-  // Apply armor (if target is player and has armor)
+  // Apply armor: vanilla P_DamageMobj formula:
+  // saved = armortype * damage / 3  (integer division)
   let actualDamage = damage;
   if (!(flags & DamageFlags.NO_ARMOR) && target.player) {
-    if (target.player.armor > 0) {
-      const saved = Math.min(
-        target.player.armor,
-        Math.floor(actualDamage * (target.player.armorType === 2 ? 0.5 : 1 / 3))
-      );
-      target.player.armor = Math.max(0, target.player.armor - saved);
+    if (target.player.armor > 0 && target.player.armorType > 0) {
+      let saved = Math.floor(target.player.armorType * actualDamage / 3);
+      if (saved > target.player.armor) {
+        saved = target.player.armor;
+      }
+      target.player.armor -= saved;
       actualDamage -= saved;
+      if (target.player.armor <= 0) {
+        target.player.armorType = 0;
+      }
     }
   }
 

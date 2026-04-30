@@ -46,8 +46,13 @@ export interface MonsterThinkContext {
   addWorldMobj: (mobj: Mobj, thinker: (m: Mobj) => void) => void;
 }
 
+// Vanilla p_local.h: MELEERANGE = 64*FRACUNIT, but check uses MELEERANGE-20+target.radius
 const MELEERANGE = 64;
-const MISSILERANGE = 2048;
+
+// Opposite direction table for P_NewChaseDir
+const DI_NODIR = 8;
+const opposite = [4, 5, 6, 7, 0, 1, 2, 3, DI_NODIR];
+const diags = [5, 7, 1, 3]; // NW, NE, SW, SE
 
 function getEnemyAI(enemy: Mobj): EnemyAI {
   if (!(enemy as any).ai) {
@@ -93,35 +98,90 @@ function updateMonsterFrame(enemy: Mobj, ai: EnemyAI): void {
 }
 
 /**
- * Nearest cardinal/diagonal chase dir (0–7) matching linuxdoom P_NewChaseDir / P_Move octants.
- * Using the real xspeed/yspeed vectors avoids “homing missiles” that outrun vanilla A_Chase.
+ * P_CheckMissileRange from p_enemy.c — distance-based probability for ranged attacks.
  */
-function chaseMovedirToward(nx: number, ny: number): number {
-  let best = -Infinity;
-  let dir = 0;
-  for (let k = 0; k < 8; k++) {
-    const vx = CHASE_XSPEED[k]!;
-    const vy = CHASE_YSPEED[k]!;
-    const len = Math.hypot(vx, vy);
-    const dot = (nx * vx + ny * vy) / len;
-    if (dot > best) {
-      best = dot;
-      dir = k;
+function checkMissileRange(enemy: Mobj, target: Mobj): boolean {
+  if (enemy.flags & MobjFlags.JUSTHIT) {
+    enemy.flags &= ~MobjFlags.JUSTHIT;
+    return true;
+  }
+
+  const ai = getEnemyAI(enemy);
+  if (ai.reactiontime > 0) return false;
+
+  let dist = Math.hypot(
+    FixedToFloat(enemy.x - target.x),
+    FixedToFloat(enemy.y - target.y)
+  ) - 64;
+
+  const hasMelee = enemy.type === 3001 || enemy.type === 3002;
+  if (!hasMelee) dist -= 128;
+  if (dist < 0) dist = 0;
+
+  if (enemy.type === 3006) dist = dist / 2; // Lost Soul
+
+  if (dist > 200) dist = 200;
+
+  return pRandom() >= dist;
+}
+
+/**
+ * P_NewChaseDir from p_enemy.c — picks movement direction toward target.
+ */
+function newChaseDir(enemy: Mobj, target: Mobj): number {
+  const ai = getEnemyAI(enemy);
+  const olddir: number = (ai as any).movedir ?? DI_NODIR;
+  const turnaround = opposite[olddir] ?? DI_NODIR;
+
+  const deltax = FixedToFloat(target.x - enemy.x);
+  const deltay = FixedToFloat(target.y - enemy.y);
+
+  let d1: number;
+  let d2: number;
+
+  if (deltax > 10) d1 = 0;
+  else if (deltax < -10) d1 = 4;
+  else d1 = DI_NODIR;
+
+  if (deltay < -10) d2 = 6;
+  else if (deltay > 10) d2 = 2;
+  else d2 = DI_NODIR;
+
+  if (d1 !== DI_NODIR && d2 !== DI_NODIR) {
+    const diagIdx = ((deltay < 0) ? 2 : 0) + ((deltax > 0) ? 0 : 1);
+    const diag = diags[diagIdx]!;
+    if (diag !== turnaround) return diag;
+  }
+
+  if (pRandom() > 200 || Math.abs(deltay) > Math.abs(deltax)) {
+    const temp = d1;
+    d1 = d2;
+    d2 = temp;
+  }
+
+  if (d1 !== DI_NODIR && d1 !== turnaround) return d1;
+  if (d2 !== DI_NODIR && d2 !== turnaround) return d2;
+  if (olddir !== DI_NODIR && olddir !== turnaround) return olddir;
+
+  if (pRandom() & 1) {
+    for (let tdir = 0; tdir <= 7; tdir++) {
+      if (tdir !== turnaround) return tdir;
+    }
+  } else {
+    for (let tdir = 7; tdir >= 0; tdir--) {
+      if (tdir !== turnaround) return tdir;
     }
   }
-  return dir;
+
+  return turnaround !== DI_NODIR ? turnaround : 0;
 }
 
 function moveTowardPlayer(enemy: Mobj, player: Mobj, mapData: MapData): void {
-  const dx = FixedToFloat(player.x - enemy.x);
-  const dy = FixedToFloat(player.y - enemy.y);
-  const dist = Math.hypot(dx, dy);
-  if (dist <= 1) {
-    return;
-  }
+  const ai = getEnemyAI(enemy);
+  const movedir = newChaseDir(enemy, player);
+  (ai as any).movedir = movedir;
 
   const speed = getMonsterChaseSpeed(enemy.type);
-  const movedir = chaseMovedirToward(dx / dist, dy / dist);
   enemy.momx = speed * CHASE_XSPEED[movedir]!;
   enemy.momy = speed * CHASE_YSPEED[movedir]!;
   applyCollision(enemy, mapData);
@@ -265,35 +325,49 @@ export function updateMonster(
     return;
   }
 
+  // Vanilla melee range check: MELEERANGE - 20 + target radius
+  const targetRadius = FixedToFloat(player.radius);
+  const meleeCheckDist = MELEERANGE - 20 + targetRadius;
+  const inMelee = dist <= meleeCheckDist && hasSight;
+
   const canAttack =
     hasSight &&
     ai.attackCooldown <= 0 &&
-    ai.reactiontime <= 0 &&
-    dist <= MISSILERANGE;
+    ai.reactiontime <= 0;
 
-  const missileChance = (pRandom() % 100) < 18;
-  const inMelee = dist <= MELEERANGE;
+  // Use vanilla P_CheckMissileRange (distance-based probability)
+  const missileOk = canAttack && checkMissileRange(enemy, player);
 
   let shouldAttack = false;
   let melee = false;
 
   switch (enemy.type) {
-    case 3002:
+    case 3002: // Demon - melee only
       shouldAttack = canAttack && inMelee;
       melee = true;
       break;
-    case 3001:
-      shouldAttack = canAttack && (inMelee || missileChance);
-      melee = inMelee;
+    case 3001: // Imp - melee + missile
+      if (canAttack && inMelee) {
+        shouldAttack = true;
+        melee = true;
+      } else {
+        shouldAttack = missileOk;
+        melee = false;
+      }
       break;
-    case 3004:
-    case 9:
-      shouldAttack = canAttack && missileChance;
+    case 3004: // Zombieman
+    case 9:    // Shotgun Guy
+      shouldAttack = missileOk;
       melee = false;
       break;
     default:
-      shouldAttack = canAttack && missileChance;
-      melee = inMelee;
+      if (canAttack && inMelee) {
+        shouldAttack = true;
+        melee = true;
+      } else {
+        shouldAttack = missileOk;
+        melee = false;
+      }
       break;
   }
 
