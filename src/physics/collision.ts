@@ -10,7 +10,7 @@ import { findSectorAtPoint } from '../level';
 import type { Fixed } from '../core';
 import { FixedToFloat, FloatToFixed } from '../core/fixed';
 import { ML_BLOCKING, ML_TWOSIDED } from '../level/types';
-import { MAXSTEPHEIGHT } from './constants';
+import { MAXSTEPHEIGHT, MAXMOVE } from './constants';
 
 // Maximum step height in DOOM units
 const MAX_STEP_HEIGHT = FixedToFloat(MAXSTEPHEIGHT);
@@ -225,53 +225,103 @@ function updateFloorCeiling(mobj: Mobj, mapData: MapData): void {
 }
 
 /**
- * Apply collision detection to movement
- * Modifies mobj position based on collision with walls and SOLID mobjs (barrels, etc.)
- * @param otherMobjs - Optional list of all mobjs for mobj-vs-mobj collision; when omitted only walls are checked.
+ * Try to move to a new position. Returns true if the move succeeded.
+ */
+function tryMove(mobj: Mobj, newX: Fixed, newY: Fixed, mapData: MapData, otherMobjs: Mobj[]): boolean {
+  if (!checkWallCollision(mobj, newX, newY, mapData)) return false;
+  if (!checkMobjCollision(mobj, newX, newY, otherMobjs)) return false;
+
+  const oldX = mobj.x;
+  const oldY = mobj.y;
+  mobj.x = newX;
+  mobj.y = newY;
+  updateFloorCeiling(mobj, mapData);
+
+  const newFloorHeight = FixedToFloat(mobj.floorz);
+  const currentZ = FixedToFloat(mobj.z);
+  const stepHeight = newFloorHeight - currentZ;
+
+  if (stepHeight > MAX_STEP_HEIGHT) {
+    mobj.x = oldX;
+    mobj.y = oldY;
+    updateFloorCeiling(mobj, mapData);
+    return false;
+  }
+
+  if (stepHeight > 0 && stepHeight <= MAX_STEP_HEIGHT) {
+    mobj.z = mobj.floorz;
+  }
+
+  return true;
+}
+
+/**
+ * Slide along walls when blocked (simplified P_SlideMove for players).
+ */
+function slideMove(mobj: Mobj, mapData: MapData, otherMobjs: Mobj[]): void {
+  const newX_only = mobj.x + mobj.momx;
+  const newY_only = mobj.y + mobj.momy;
+  let moved = false;
+
+  if (tryMove(mobj, newX_only, mobj.y, mapData, otherMobjs)) {
+    moved = true;
+  }
+  if (tryMove(mobj, mobj.x, newY_only, mapData, otherMobjs)) {
+    moved = true;
+  }
+
+  if (!moved) {
+    mobj.momx = 0;
+    mobj.momy = 0;
+  }
+}
+
+/**
+ * Apply collision detection to movement using vanilla sub-stepping.
+ * Vanilla P_XYMovement splits moves > MAXMOVE/2 into sub-steps.
+ * @param otherMobjs - Optional list of all mobjs for mobj-vs-mobj collision.
  */
 export function applyCollision(mobj: Mobj, mapData: MapData, otherMobjs: Mobj[] = []): void {
-  const newX = mobj.x + mobj.momx;
-  const newY = mobj.y + mobj.momy;
-
-  const wallOk = checkWallCollision(mobj, newX, newY, mapData);
-  const mobjOk = checkMobjCollision(mobj, newX, newY, otherMobjs);
-
-  if (wallOk && mobjOk) {
-    mobj.x = newX;
-    mobj.y = newY;
+  if (mobj.flags & MobjFlags.NOCLIP) {
+    mobj.x += mobj.momx;
+    mobj.y += mobj.momy;
     updateFloorCeiling(mobj, mapData);
+    return;
+  }
 
-    const newFloorHeight = FixedToFloat(mobj.floorz);
-    const currentZ = FixedToFloat(mobj.z);
-    const stepHeight = newFloorHeight - currentZ;
+  const halfMaxMove = MAXMOVE >> 1;
+  let xmove = mobj.momx;
+  let ymove = mobj.momy;
 
-    if (stepHeight > 0 && stepHeight <= MAX_STEP_HEIGHT) {
-      mobj.z = mobj.floorz;
-    } else if (stepHeight > MAX_STEP_HEIGHT) {
-      mobj.x -= mobj.momx;
-      mobj.y -= mobj.momy;
-      mobj.momx = 0;
-      mobj.momy = 0;
-      updateFloorCeiling(mobj, mapData);
-      return;
+  // Sub-step loop (vanilla splits large moves into MAXMOVE/2 chunks)
+  while (xmove !== 0 || ymove !== 0) {
+    let stepX: Fixed;
+    let stepY: Fixed;
+
+    if (xmove > halfMaxMove || xmove < -halfMaxMove ||
+        ymove > halfMaxMove || ymove < -halfMaxMove) {
+      stepX = mobj.momx >> 1;
+      stepY = mobj.momy >> 1;
+      xmove -= stepX;
+      ymove -= stepY;
+    } else {
+      stepX = xmove;
+      stepY = ymove;
+      xmove = 0;
+      ymove = 0;
     }
-  } else {
-    const newX_only = mobj.x + mobj.momx;
-    const newY_only = mobj.y + mobj.momy;
-    let moved = false;
-    if (checkWallCollision(mobj, newX_only, mobj.y, mapData) && checkMobjCollision(mobj, newX_only, mobj.y, otherMobjs)) {
-      mobj.x = newX_only;
-      updateFloorCeiling(mobj, mapData);
-      moved = true;
-    }
-    if (checkWallCollision(mobj, mobj.x, newY_only, mapData) && checkMobjCollision(mobj, mobj.x, newY_only, otherMobjs)) {
-      mobj.y = newY_only;
-      updateFloorCeiling(mobj, mapData);
-      moved = true;
-    }
-    if (!moved) {
-      mobj.momx = 0;
-      mobj.momy = 0;
+
+    const newX = mobj.x + stepX;
+    const newY = mobj.y + stepY;
+
+    if (!tryMove(mobj, newX, newY, mapData, otherMobjs)) {
+      if (mobj.flags & MobjFlags.SLIDE) {
+        slideMove(mobj, mapData, otherMobjs);
+      } else {
+        mobj.momx = 0;
+        mobj.momy = 0;
+      }
+      break;
     }
   }
 }

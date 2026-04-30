@@ -85,8 +85,7 @@ export const WEAPON_INFO: Map<WeaponType, WeaponInfo> = new Map([
     ammoType: 'bullets',
     ammoPerShot: 1,
     damage: 15,
-    /* ~PISTOL1–PISTOL4 chain in info.c (refire held). */
-    fireDelay: 18,
+    fireDelay: 19, // S_PISTOL1-4: 4+6+4+5 = 19 tics
     sprite: 'PISG',
   }],
   [WeaponType.SHOTGUN, {
@@ -133,7 +132,7 @@ export const WEAPON_INFO: Map<WeaponType, WeaponInfo> = new Map([
     type: WeaponType.CHAINSAW,
     ammoPerShot: 0,
     damage: 10,
-    fireDelay: 4,
+    fireDelay: 8, // S_SAW1-3: 4+4+0(refire) = 8 tics
     sprite: 'SAWG',
   }],
   [WeaponType.SUPER_SHOTGUN, {
@@ -141,7 +140,7 @@ export const WEAPON_INFO: Map<WeaponType, WeaponInfo> = new Map([
     ammoType: 'shells',
     ammoPerShot: 2,
     damage: 80,
-    fireDelay: 55,
+    fireDelay: 62, // S_DSGUN1-10: 3+7+7+7+7+7+7+6+6+5 = 62 tics
     sprite: 'SHT2',
   }],
 ]);

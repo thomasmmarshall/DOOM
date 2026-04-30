@@ -76,7 +76,10 @@ export class InputManager {
   }
 
   /**
-   * Build tick command from current input state
+   * Build tick command from current input state.
+   * Movement values match vanilla g_game.c:
+   *   forwardmove[2] = {0x19, 0x32}  (25 walk, 50 run)
+   *   sidemove[2]    = {0x18, 0x28}  (24 walk, 40 run)
    */
   buildTicCmd(): TicCmd {
     const cmd: TicCmd = {
@@ -86,30 +89,36 @@ export class InputManager {
       buttons: 0,
     };
 
-    // Forward/backward movement (use larger values for noticeable movement)
+    // Default to run speed (most modern players expect always-run).
+    // Hold Shift to walk at vanilla normal speed.
+    const walking = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
+    const fwdSpeed = walking ? 0x19 : 0x32; // walk: 25, run: 50
+    const sideSpeed = walking ? 0x18 : 0x28; // walk: 24, run: 40
+
+    // Forward/backward
     if (this.keys.has('KeyW') || this.keys.has('ArrowUp')) {
-      cmd.forwardmove = 25; // Run forward
+      cmd.forwardmove = fwdSpeed;
     } else if (this.keys.has('KeyS') || this.keys.has('ArrowDown')) {
-      cmd.forwardmove = -25; // Run backward
+      cmd.forwardmove = -fwdSpeed;
     }
 
-    // Strafe movement
+    // Strafe
     if (this.keys.has('KeyA')) {
-      cmd.sidemove = -20; // Strafe left
+      cmd.sidemove = -sideSpeed;
     } else if (this.keys.has('KeyD')) {
-      cmd.sidemove = 20; // Strafe right
+      cmd.sidemove = sideSpeed;
     }
 
-    // Turn left/right (keyboard)
+    // Keyboard turning — vanilla angleturn[3] = {640, 1280, 320}
+    // Run = fast turn (1280), walk = normal turn (640)
+    const turnSpeed = walking ? 640 : 1280;
     if (this.keys.has('ArrowLeft')) {
-      cmd.angleturn = 40; // Turn left (in BAM units before shift)
+      cmd.angleturn = turnSpeed;
     } else if (this.keys.has('ArrowRight')) {
-      cmd.angleturn = -40; // Turn right
+      cmd.angleturn = -turnSpeed;
     }
 
-    // Mouse turning - match original DOOM sensitivity (default 5)
-    // angleturn << 16 is added to BAM angle; 360° = 0x100000000
-    // 25: ~400px ≈ 55° (full mousepad ≈ 1 turn)
+    // Mouse turning
     if (this.mouseLocked && this.mouseX !== 0) {
       const sensitivity = 25;
       cmd.angleturn -= Math.floor(this.mouseX * sensitivity);

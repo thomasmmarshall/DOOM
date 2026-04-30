@@ -286,7 +286,8 @@ export function spawnPlayerProjectile(
       const hx = ox + dirX * Math.max(0, hitDist - 0.1);
       const hy = oy + dirY * Math.max(0, hitDist - 0.1);
       if (kind === 'plasma') {
-        damageActor(hitThing, 5, owner);
+        // Vanilla: 5*((P_Random()%8)+1) = 5-40 damage
+        damageActor(hitThing, 5 * ((pRandom() % 8) + 1), owner);
       } else if (kind === 'rocket') {
         radiusAttack(hx, hy, 128, owner, all);
       } else {

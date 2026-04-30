@@ -60,16 +60,20 @@ export function damageActor(
     return { damageDealt: damage, killed: true, overkill: damage };
   }
 
-  // Apply armor (if target is player and has armor)
+  // Apply armor: vanilla P_DamageMobj formula:
+  // saved = armortype * damage / 3  (integer division)
   let actualDamage = damage;
   if (!(flags & DamageFlags.NO_ARMOR) && target.player) {
-    if (target.player.armor > 0) {
-      const saved = Math.min(
-        target.player.armor,
-        Math.floor(actualDamage * (target.player.armorType === 2 ? 0.5 : 1 / 3))
-      );
-      target.player.armor = Math.max(0, target.player.armor - saved);
+    if (target.player.armor > 0 && target.player.armorType > 0) {
+      let saved = Math.floor(target.player.armorType * actualDamage / 3);
+      if (saved > target.player.armor) {
+        saved = target.player.armor;
+      }
+      target.player.armor -= saved;
       actualDamage -= saved;
+      if (target.player.armor <= 0) {
+        target.player.armorType = 0;
+      }
     }
   }
 
@@ -87,11 +91,20 @@ export function damageActor(
     return { damageDealt: actualDamage, killed: true, overkill };
   }
 
-  // Not killed - enter pain state
-  // TODO: Implement pain state when we have full state system
-  // For now, just set a flag
+  // Infighting: if a non-player damages a monster, the monster retargets.
+  // Vanilla: target->target = source; target->threshold = BASETHRESHOLD (100 tics).
+  if (!target.player && attacker && attacker !== target &&
+      !(target.flags & MobjFlags.SKULLFLY)) {
+    target.infightTarget = attacker;
+    target.threshold = 100; // BASETHRESHOLD
+  }
+
+  // Pain state — vanilla P_DamageMobj uses painchance from mobjinfo.
   if (target.health > 0) {
-    target.flags |= MobjFlags.JUSTHIT;
+    const painChance = target.painChance ?? 128;
+    if (pRandom() < painChance) {
+      target.flags |= MobjFlags.JUSTHIT;
+    }
     if (target.player) {
       target.player.damageCount = Math.min(100, target.player.damageCount + actualDamage);
     }

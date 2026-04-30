@@ -81,6 +81,10 @@ export interface Mobj {
   countsTowardKill?: boolean;
   countsTowardItem?: boolean;
   painChance?: number;
+  /** Vanilla infighting: last attacker (for monsters retargeting). */
+  infightTarget?: Mobj;
+  /** Vanilla threshold: tics before target can be switched (BASETHRESHOLD = 100). */
+  threshold?: number;
 
   // Player-specific (only valid if type === PLAYER)
   player?: PlayerState;
